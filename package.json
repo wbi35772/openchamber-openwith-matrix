@@ -1,0 +1,92 @@
+{
+  "name": "openchamber-openwith-matrix",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenWith Matrix & Tab OS: a browser-style multi-tab workspace inside OpenChamber for guest extensions, Windows apps, ShardX profiles, WSL2 services, Docker, Kubernetes and cloud links.",
+  "keywords": [
+    "openchamber",
+    "openchamber-extension",
+    "open-with",
+    "matrix",
+    "workspace",
+    "tabs",
+    "wsl",
+    "docker",
+    "kubernetes",
+    "shardx"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wbi35772/openchamber-openwith-matrix.git"
+  },
+  "homepage": "https://github.com/wbi35772/openchamber-openwith-matrix#readme",
+  "bugs": {
+    "url": "https://github.com/wbi35772/openchamber-openwith-matrix/issues"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
+    "test": "npm run typecheck && npm run build"
+  },
+  "openchamber": {
+    "apiVersion": 1,
+    "engines": {
+      "openchamber": ">=2.0.0"
+    },
+    "contributes": {
+      "panel": {
+        "id": "openwith",
+        "name": "OpenWith Matrix",
+        "icon": "icon.svg",
+        "entry": "panel/index.html"
+      },
+      "page": true,
+      "service": {
+        "entry": "service/main.js",
+        "runtime": "host",
+        "permissions": {
+          "exec": [
+            "open",
+            "xdg-open",
+            "cmd",
+            "powershell",
+            "pwsh",
+            "which",
+            "where",
+            "where.exe",
+            "taskkill",
+            "wsl",
+            "bash",
+            "sh",
+            "git",
+            "docker",
+            "kubectl",
+            "code",
+            "cursor",
+            "zed",
+            "subl",
+            "ghostty",
+            "warp",
+            "wt",
+            "explorer",
+            "notepad",
+            "taskmgr",
+            "control",
+            "mspaint",
+            "snippingtool",
+            "chrome",
+            "msedge",
+            "ShardBrowser-Launcher-portable-win-x64"
+          ]
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@openchamber/sdk": "^2.6.0",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}
