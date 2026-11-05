@@ -1,0 +1,238 @@
+{
+  "version": 3,
+  "settings": {
+    "theme": "system",
+    "defaultTabKind": "matrix-home",
+    "maxTabs": 40,
+    "keepAliveTabs": 12,
+    "terminalShell": "powershell",
+    "terminalTimeoutMs": 60000,
+    "browser": {
+      "chromePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "edgePath": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+      "viewportWidth": 1280,
+      "viewportHeight": 800,
+      "jpegQuality": 55,
+      "frameIntervalMs": 120
+    },
+    "wsl": {
+      "distro": "Ubuntu-24.04",
+      "defaultUser": ""
+    },
+    "shardx": {
+      "apiBase": "http://127.0.0.1:40325",
+      "tokenEnv": "SHARDX_TOKEN",
+      "launcherPath": "",
+      "profileCount": 31
+    },
+    "docker": {
+      "composeFiles": [],
+      "defaultProject": "openwith"
+    },
+    "k8s": {
+      "defaultContext": "",
+      "defaultNamespace": "default",
+      "portForwardPool": [18080, 18081, 18082, 18083]
+    },
+    "logSources": [
+      {
+        "id": "service-log",
+        "name": "OpenWith service",
+        "kind": "file",
+        "target": "~/.config/openchamber-openwith/logs/service.log"
+      },
+      {
+        "id": "docker-compose",
+        "name": "Docker compose",
+        "kind": "command",
+        "target": "docker",
+        "args": ["compose", "logs", "-f", "--tail=200"]
+      },
+      {
+        "id": "wsl-syslog",
+        "name": "WSL journal",
+        "kind": "command",
+        "target": "wsl",
+        "args": ["-d", "Ubuntu-24.04", "--", "journalctl", "-f", "-n", "200", "--no-pager"]
+      }
+    ]
+  },
+  "groups": {
+    "guests": {
+      "enabled": true,
+      "order": [],
+      "hidden": []
+    },
+    "win11": {
+      "apps": [
+        { "id": "explorer", "name": "File Explorer", "command": "explorer", "args": [] },
+        { "id": "powershell", "name": "PowerShell", "command": "powershell", "args": [] },
+        { "id": "terminal", "name": "Windows Terminal", "command": "wt", "args": [] },
+        { "id": "notepad", "name": "Notepad", "command": "notepad", "args": [] },
+        { "id": "taskmgr", "name": "Task Manager", "command": "taskmgr", "args": [] },
+        { "id": "control", "name": "Control Panel", "command": "control", "args": [] },
+        { "id": "mspaint", "name": "Paint", "command": "mspaint", "args": [] },
+        { "id": "snippingtool", "name": "Snipping Tool", "command": "snippingtool", "args": [] },
+        { "id": "vscode", "name": "VS Code", "command": "code", "args": [] }
+      ],
+      "shardx": [
+        { "id": "shardx-01", "name": "ShardX 01", "folder": "ShardX" },
+        { "id": "shardx-02", "name": "ShardX 02", "folder": "ShardX" },
+        { "id": "shardx-03", "name": "ShardX 03", "folder": "ShardX" },
+        { "id": "shardx-04", "name": "ShardX 04", "folder": "ShardX" },
+        { "id": "shardx-05", "name": "ShardX 05", "folder": "ShardX" },
+        { "id": "shardx-06", "name": "ShardX 06", "folder": "ShardX" },
+        { "id": "shardx-07", "name": "ShardX 07", "folder": "ShardX" },
+        { "id": "shardx-08", "name": "ShardX 08", "folder": "ShardX" },
+        { "id": "shardx-09", "name": "ShardX 09", "folder": "ShardX" },
+        { "id": "shardx-10", "name": "ShardX 10", "folder": "ShardX" },
+        { "id": "shardx-11", "name": "ShardX 11", "folder": "ShardX" },
+        { "id": "shardx-12", "name": "ShardX 12", "folder": "ShardX" },
+        { "id": "shardx-13", "name": "ShardX 13", "folder": "ShardX" },
+        { "id": "shardx-14", "name": "ShardX 14", "folder": "ShardX" },
+        { "id": "shardx-15", "name": "ShardX 15", "folder": "ShardX" },
+        { "id": "shardx-16", "name": "ShardX 16", "folder": "ShardX" },
+        { "id": "shardx-17", "name": "ShardX 17", "folder": "ShardX" },
+        { "id": "shardx-18", "name": "ShardX 18", "folder": "ShardX" },
+        { "id": "shardx-19", "name": "ShardX 19", "folder": "ShardX" },
+        { "id": "shardx-20", "name": "ShardX 20", "folder": "ShardX" },
+        { "id": "shardx-21", "name": "ShardX 21", "folder": "ShardX" },
+        { "id": "shardx-22", "name": "ShardX 22", "folder": "ShardX" },
+        { "id": "shardx-23", "name": "ShardX 23", "folder": "ShardX" },
+        { "id": "shardx-24", "name": "ShardX 24", "folder": "ShardX" },
+        { "id": "shardx-25", "name": "ShardX 25", "folder": "ShardX" },
+        { "id": "shardx-26", "name": "ShardX 26", "folder": "ShardX" },
+        { "id": "shardx-27", "name": "ShardX 27", "folder": "ShardX" },
+        { "id": "shardx-28", "name": "ShardX 28", "folder": "ShardX" },
+        { "id": "shardx-29", "name": "ShardX 29", "folder": "ShardX" },
+        { "id": "shardx-30", "name": "ShardX 30", "folder": "ShardX" },
+        { "id": "shardx-31", "name": "ShardX 31", "folder": "ShardX" }
+      ]
+    },
+    "wsl": {
+      "distros": [{ "name": "Ubuntu-24.04", "default": true }],
+      "ports": [
+        { "id": "wsl-8088", "label": "Local AI (Open WebUI)", "port": 8088, "protocol": "http", "path": "/" },
+        { "id": "wsl-10808", "label": "Proxy (HTTP)", "port": 10808, "protocol": "tcp" },
+        { "id": "wsl-10810", "label": "Proxy (SOCKS)", "port": 10810, "protocol": "tcp" },
+        { "id": "wsl-27123", "label": "Webhook Bridge", "port": 27123, "protocol": "http", "path": "/" },
+        { "id": "wsl-6379", "label": "Redis", "port": 6379, "protocol": "tcp" },
+        { "id": "wsl-6333", "label": "Qdrant", "port": 6333, "protocol": "http", "path": "/dashboard" }
+      ]
+    },
+    "docker": {
+      "enabled": true,
+      "composeFiles": [],
+      "containers": []
+    },
+    "k8s": {
+      "enabled": true,
+      "contexts": [],
+      "portForwards": []
+    },
+    "cloud": {
+      "bookmarks": [
+        {
+          "id": "github-repo",
+          "name": "GitHub 仓库搜索",
+          "url": "https://github.com/search?q={projectName}&type=repositories",
+          "icon": "github",
+          "group": "code",
+          "openIn": "browser"
+        },
+        {
+          "id": "github-branch",
+          "name": "GitHub 分支搜索",
+          "url": "https://github.com/search?q={gitBranch}&type=code",
+          "icon": "github",
+          "group": "code",
+          "openIn": "browser"
+        },
+        {
+          "id": "path-search",
+          "name": "搜索项目路径",
+          "url": "https://www.google.com/search?q={pathUrlEncode}",
+          "icon": "search",
+          "group": "code",
+          "openIn": "browser"
+        },
+        {
+          "id": "local-web",
+          "name": "本地 Web",
+          "url": "http://localhost:{port}/",
+          "icon": "globe",
+          "group": "local",
+          "openIn": "panel"
+        },
+        {
+          "id": "wsl-web",
+          "name": "WSL 服务 8088",
+          "url": "http://{wslIp}:8088/",
+          "icon": "server",
+          "group": "local",
+          "openIn": "panel"
+        },
+        {
+          "id": "local-ai",
+          "name": "本地 AI 控制台",
+          "url": "http://{wslIp}:8088/",
+          "icon": "sparkles",
+          "group": "local",
+          "openIn": "panel"
+        },
+        {
+          "id": "grafana",
+          "name": "Grafana",
+          "url": "http://localhost:3000/",
+          "icon": "chart",
+          "group": "local",
+          "openIn": "panel"
+        },
+        {
+          "id": "k8s-dashboard",
+          "name": "K8s 端口转发",
+          "url": "http://localhost:18080/",
+          "icon": "box",
+          "group": "infra",
+          "openIn": "panel"
+        },
+        {
+          "id": "win-file",
+          "name": "Windows 路径",
+          "url": "file:///{winPath}",
+          "icon": "folder",
+          "group": "files",
+          "openIn": "host"
+        },
+        {
+          "id": "openchamber-docs",
+          "name": "OpenChamber 文档",
+          "url": "https://openchamber.ai/docs",
+          "icon": "book",
+          "group": "docs",
+          "openIn": "browser"
+        }
+      ],
+      "webhooks": [
+        {
+          "id": "notify-local",
+          "name": "本地通知桥",
+          "method": "POST",
+          "url": "http://127.0.0.1:27123/webhook/openwith",
+          "headers": { "Content-Type": "application/json" },
+          "body": "{\"project\":\"{projectName}\",\"path\":\"{path}\",\"branch\":\"{gitBranch}\",\"wslIp\":\"{wslIp}\"}"
+        },
+        {
+          "id": "reload-browser",
+          "name": "刷新预览",
+          "method": "GET",
+          "url": "http://127.0.0.1:27123/reload?path={pathUrlEncode}"
+        }
+      ]
+    }
+  },
+  "home": {
+    "pageSize": 8,
+    "groups": []
+  }
+}
