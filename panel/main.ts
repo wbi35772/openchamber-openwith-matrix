@@ -20,6 +20,8 @@ import type {
   GuestFrameGrant,
   GuestServiceResult,
   GuestSummary,
+  HomeSectionConfig,
+  HomeViewMode,
   JsonValue,
   LogOutput,
   LogSourceInfo,
@@ -39,6 +41,7 @@ import { mountHome, type HomeActions, type HomeState } from './views/matrixHomeV
 import { createLogPane, type LogPaneHandle } from './views/logStreamView.ts';
 import { openConfigModal } from './views/configModalView.ts';
 import { openHomeGroups } from './views/homeGroupsView.ts';
+import { openHomeTabs } from './views/homeTabsView.ts';
 import { openResourceEditor, type ResourceSection } from './views/resourceEditorView.ts';
 import { createGuestBridge, type GuestBridge } from './guestBridge.ts';
 
@@ -55,6 +58,7 @@ interface Shell {
   body: HTMLElement;
   status: HTMLElement;
   splitControls: HTMLElement;
+  splitButton: HTMLButtonElement;
   divider: HTMLElement;
   newButton: HTMLButtonElement;
 }
@@ -205,13 +209,13 @@ const runAction = async (label: string, work: () => Promise<unknown>): Promise<v
 };
 
 const homeActions: HomeActions = {
-  refresh: () => void refreshSnapshot(true),
   rerender: () => renderHome(),
-  openConfig: () => openConfig(),
+  openManageMenu: (anchor) => openHomeManageMenu(anchor),
   editGroups: () => openHomeGroupsEditor(),
+  editTabs: () => openHomeTabsEditor(),
   editResources: (section) => openResources(section),
-  openLogs,
-  openTerminal,
+  setHomeView: (sectionId, view) => setHomeView(sectionId, view),
+  moveHomeSection: (sectionId, beforeId) => moveHomeSection(sectionId, beforeId),
   openGuest,
   toggleGuest: (guest, enabled) => {
     void runAction(`${enabled ? '启用' : '禁用'} ${guest.name}`, () =>
@@ -843,6 +847,8 @@ const renderSplitControls = (): void => {
   if (!shell || !tabs) return;
   const state = tabs.getState();
   shell.splitControls.hidden = !state.split.enabled;
+  shell.splitButton.classList.toggle('active', state.split.enabled);
+  shell.splitButton.setAttribute('aria-pressed', String(state.split.enabled));
   clear(shell.splitControls);
   if (!state.split.enabled) return;
   const secondary = state.split.secondaryTabId;
@@ -975,17 +981,63 @@ const closeTab = (id: string): void => {
   if (tabs?.close(id)) destroyPane(id);
 };
 
+let menuAnchor: HTMLElement | null = null;
+let menuCleanup: (() => void) | null = null;
+
 const closeMenu = (): void => {
+  menuCleanup?.();
+  menuCleanup = null;
+  menuAnchor = null;
   tabMenu?.remove();
   tabMenu = null;
 };
 
-const toggleNewMenu = (): void => {
+const openHomeManageMenu = (anchor: HTMLElement): void => {
   if (!shell) return;
-  if (tabMenu) {
+  if (tabMenu && menuAnchor === anchor) {
     closeMenu();
     return;
   }
+  if (tabMenu) closeMenu();
+  const menu = h('div', { class: 'tab-menu home-manage-menu' });
+  const item = (label: string, run: () => void): HTMLButtonElement =>
+    button(label, () => {
+      closeMenu();
+      run();
+    });
+  menu.append(
+    h('div', { class: 'menu-label', text: '主页管理' }),
+    h('div', { class: 'menu-actions' }, [
+      item('主页标签', () => openHomeTabsEditor()),
+      item('默认资源', () => openResources('guests')),
+      item('自定义分组', () => openHomeGroupsEditor()),
+    ]),
+  );
+  document.body.append(menu);
+  const rect = anchor.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(rect.right - 220, window.innerWidth - 228))}px`;
+  menu.style.top = `${rect.bottom + 6}px`;
+  tabMenu = menu;
+  menuAnchor = anchor;
+  const onDocumentClick = (event: MouseEvent): void => {
+    if (tabMenu && !tabMenu.contains(event.target as Node) && event.target !== anchor) {
+      closeMenu();
+    }
+  };
+  menuCleanup = () => document.removeEventListener('click', onDocumentClick);
+  window.setTimeout(() => {
+    if (tabMenu === menu) document.addEventListener('click', onDocumentClick);
+  }, 0);
+};
+
+const toggleNewMenu = (): void => {
+  if (!shell) return;
+  const anchor = shell.newButton;
+  if (tabMenu && menuAnchor === anchor) {
+    closeMenu();
+    return;
+  }
+  if (tabMenu) closeMenu();
   const menu = h('div', { class: 'tab-menu' });
   const urlInput = h('input', {
     class: 'input',
@@ -1014,10 +1066,6 @@ const toggleNewMenu = (): void => {
         openTerminal();
         closeMenu();
       }),
-      button('配置', () => {
-        openConfig();
-        closeMenu();
-      }),
     ]),
   );
   const guests = snapshot?.guests ?? [];
@@ -1043,17 +1091,24 @@ const toggleNewMenu = (): void => {
   menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 340))}px`;
   menu.style.top = `${rect.bottom + 6}px`;
   tabMenu = menu;
+  menuAnchor = anchor;
+  const onDocumentClick = (event: MouseEvent): void => {
+    if (tabMenu && !tabMenu.contains(event.target as Node) && event.target !== anchor) {
+      closeMenu();
+    }
+  };
+  menuCleanup = () => document.removeEventListener('click', onDocumentClick);
   window.setTimeout(() => {
-    document.addEventListener(
-      'click',
-      (event) => {
-        if (tabMenu && !tabMenu.contains(event.target as Node) && event.target !== shell?.newButton) {
-          closeMenu();
-        }
-      },
-      { once: true },
-    );
+    if (tabMenu === menu) document.addEventListener('click', onDocumentClick);
   }, 0);
+};
+
+const refreshAfterSave = async (): Promise<void> => {
+  try {
+    await refreshSnapshot(false);
+  } catch (error) {
+    notify(`已保存，但刷新失败：${messageOf(error)}`, 'error');
+  }
 };
 
 const openConfig = (): void => {
@@ -1064,7 +1119,7 @@ const openConfig = (): void => {
     onSave: async (patch) => {
       config = await request<MatrixConfig>('PUT', '/config', patch);
       notify('配置已保存', 'ok');
-      await refreshSnapshot(false);
+      await refreshAfterSave();
       void request<LogSourceInfo[]>('GET', '/logs/sources')
         .then((sources) => {
           logSources = sources;
@@ -1074,7 +1129,7 @@ const openConfig = (): void => {
     onReset: async () => {
       config = await request<MatrixConfig>('POST', '/config/reset');
       notify('已恢复默认配置', 'ok');
-      await refreshSnapshot(false);
+      await refreshAfterSave();
     },
     onClose: () => undefined,
   });
@@ -1093,7 +1148,54 @@ const openHomeGroupsEditor = (): void => {
     onSave: async (groups) => {
       config = await request<MatrixConfig>('PUT', '/config', { home: { groups } });
       notify('主页分组已保存', 'ok');
-      await refreshSnapshot(false);
+      await refreshAfterSave();
+    },
+    onClose: () => undefined,
+  });
+};
+
+const saveHomeSections = async (
+  sections: HomeSectionConfig[],
+  message: string,
+): Promise<void> => {
+  config = await request<MatrixConfig>('PUT', '/config', { home: { sections } });
+  notify(message, 'ok');
+  await refreshAfterSave();
+};
+
+const setHomeView = (sectionId: string, view: HomeViewMode): void => {
+  const sections = (config?.home.sections ?? []).map((section) =>
+    section.id === sectionId ? { ...section, view } : section,
+  );
+  void saveHomeSections(sections, '视图样式已保存').catch((error) => {
+    notify(`保存失败：${messageOf(error)}`, 'error');
+  });
+};
+
+const moveHomeSection = (sectionId: string, beforeId: string | null): void => {
+  const current = config?.home.sections ?? [];
+  const from = current.findIndex((section) => section.id === sectionId);
+  if (from < 0) return;
+  const next = [...current];
+  const [moved] = next.splice(from, 1);
+  if (!moved) return;
+  const target = beforeId ? next.findIndex((section) => section.id === beforeId) : -1;
+  next.splice(target < 0 ? next.length : target, 0, moved);
+  void saveHomeSections(next, '标签顺序已保存').catch((error) => {
+    notify(`保存失败：${messageOf(error)}`, 'error');
+  });
+};
+
+const openHomeTabsEditor = (): void => {
+  if (!config) {
+    notify('配置尚未加载', 'error');
+    return;
+  }
+  openHomeTabs({
+    sections: config.home.sections ?? [],
+    groups: config.home.groups ?? [],
+    onSave: async (sections) => {
+      await saveHomeSections(sections, '主页标签已保存');
     },
     onClose: () => undefined,
   });
@@ -1137,8 +1239,13 @@ const buildShell = (): Shell => {
     const state = tabs.getState();
     tabs.setSplit({ enabled: !state.split.enabled });
   });
-  const splitControls = h('div', { class: 'split-controls', attrs: { hidden: 'hidden' } });
+  const splitControls = h('div', {
+    class: 'split-controls split-bar',
+    attrs: { hidden: 'hidden' },
+  });
   splitButton.classList.add('split-toggle');
+  splitButton.setAttribute('title', '切换分屏');
+  splitButton.setAttribute('aria-pressed', 'false');
   const topbar = h('header', { class: 'topbar' }, [
     h('div', { class: 'brand' }, [
       h('span', { class: 'brand-mark', text: '▦' }),
@@ -1146,10 +1253,9 @@ const buildShell = (): Shell => {
       badge('2.0.0', 'info'),
     ]),
     h('div', { class: 'topbar-actions' }, [
-      splitControls,
       splitButton,
-      button('刷新', () => void refreshSnapshot(true)),
-      button('配置', () => openConfig()),
+      button('↻', () => void refreshSnapshot(true), { class: 'icon-button', title: '刷新' }),
+      button('⚙', () => openConfig(), { class: 'icon-button', title: '配置' }),
       newButton,
     ]),
   ]);
@@ -1161,8 +1267,8 @@ const buildShell = (): Shell => {
   const body = h('main', { class: 'workspace-body' }, [divider]);
   const status = h('footer', { class: 'statusbar' });
   attachSplitDrag(divider, body);
-  const root = h('div', { class: 'app' }, [topbar, strip, body, status]);
-  return { root, strip, body, status, splitControls, divider, newButton };
+  const root = h('div', { class: 'app' }, [topbar, splitControls, strip, body, status]);
+  return { root, strip, body, status, splitControls, splitButton, divider, newButton };
 };
 
 const boot = async (): Promise<void> => {

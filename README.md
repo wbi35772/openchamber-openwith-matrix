@@ -34,6 +34,7 @@ pinned pages that survive a reload.
 - [Permissions](#permissions)
 - [Limitations](#limitations)
 - [Development](#development)
+- [Timeline](#timeline)
 - [Documentation](#documentation)
 - [License](#license)
 
@@ -55,8 +56,14 @@ pinned pages that survive a reload.
 - **Cloud bookmarks and webhooks** — URL and body templates with
   `{path}`, `{winPath}`, `{pathUrlEncode}`, `{projectName}`, `{gitBranch}` and
   `{wslIp}`.
-- **Matrix home** — six collapsible, paginated resource cards with clickable
-  stats, hover details and custom groups that reference any resource.
+- **Matrix home** — configurable resource tabs with editable labels, drag
+  ordering, per-tab list/card/compact views and pagination; tabs can be hidden,
+  deleted and restored, wrap on narrow panels, and custom groups get their own
+  tab.
+- **Layered actions** — workspace actions (split, refresh, settings, new tab)
+  stay in the top bar; home tabs, resources and groups live in one “Manage” menu;
+  logs and terminal open from the new-tab menu. On narrow panels the brand name
+  collapses and the two menus switch with one click.
 - **Resource management** — one dialog over all 11 default sections: extensions,
   Windows apps, ShardX instances, WSL distros and ports, compose files,
   containers, kube contexts, port forwards, bookmarks and webhooks.
@@ -108,9 +115,10 @@ panel.
 
 ## Usage
 
-Open **OpenWith Matrix** from the extension rail. The home tab shows six cards:
+Open **OpenWith Matrix** from the extension rail. The home tab is a tab bar of
+resource views:
 
-| Card | What it does |
+| Tab | What it does |
 | --- | --- |
 | Extensions | enable, hide, open or embed installed guests |
 | Windows apps & ShardX | launch apps with the project directory; start/stop ShardX |
@@ -119,8 +127,12 @@ Open **OpenWith Matrix** from the extension rail. The home tab shows six cards:
 | Kubernetes | contexts, pods, port forwards |
 | Cloud | bookmarks and webhooks, with path/branch/WSL variables |
 
-Click a card header to collapse it; click a row to open it. Use **Resources** to
-edit any default group, and **Groups** to arrange custom home groups.
+Click a tab to swap the panel below it; drag a tab to reorder. **Tabs** opens the
+label editor, where each tab can be renamed, hidden, reordered, deleted or
+switched between list, card and compact views. Deleted tabs, including built-ins,
+stay in the editor under **Deleted tabs** and can be restored. Use **Resources**
+to edit any default group, and **Groups** to arrange custom home groups; each
+custom group automatically gets its own tab.
 
 Tabs:
 
@@ -210,8 +222,19 @@ Requirements: Node 20+, npm 10+, Bun 1.3.x (used by the SDK bundler). Install
 workflow: type-check, build, zip, refresh the orphan `release` branch and publish
 the rolling `latest` Release. See [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md).
 
+## Timeline
+
+| Date | Milestone |
+| --- | --- |
+| 2026-10-13 | First release: a side-panel launcher for extensions, apps and links |
+| 2026-11-05 | 2.0.0 baseline: tab workspace, split view, config v4, 11 resource sections |
+| 2026-11-06 | Tabbed home, layered actions, editable/deletable built-in tabs, hierarchical resource navigation |
+
+Every change is listed in [changelog.md](./changelog.md).
+
 ## Documentation
 
+- [Changelog](./changelog.md) — every change, newest first
 - [Baseline](./docs/BASELINE.md) — scope, invariants, verification record
 - [Architecture](./docs/ARCHITECTURE.md) — runtime, panel, service, routes
 - [Configuration](./docs/CONFIG.md) — every field, default and variable

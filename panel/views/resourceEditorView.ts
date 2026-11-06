@@ -314,6 +314,7 @@ export function openResourceEditor(options: ResourceEditorOptions): void {
     panelEl.append(
       h('div', { class: 'resource-head' }, [
         h('div', {}, [
+          h('p', { class: 'resource-crumb', text: '默认资源 / 扩展' }),
           h('h3', { text: '扩展' }),
           h('p', { class: 'muted', text: sections.guests.hint }),
         ]),
@@ -462,6 +463,10 @@ export function openResourceEditor(options: ResourceEditorOptions): void {
     panelEl.append(
       h('div', { class: 'resource-head' }, [
         h('div', {}, [
+          h('p', {
+            class: 'resource-crumb',
+            text: `默认资源 / ${navGroupFor(sectionId)} / ${def.label}`,
+          }),
           h('h3', { text: def.label }),
           h('p', { class: 'muted', text: def.hint }),
         ]),
@@ -520,28 +525,50 @@ export function openResourceEditor(options: ResourceEditorOptions): void {
     panelEl.append(list);
   };
 
+  const navGroupFor = (id: ResourceSection): string =>
+    NAV.find((group) => group.sections.includes(id))?.label ?? '默认资源';
+
   const renderNav = (): void => {
     clear(navEl);
     for (const group of NAV) {
-      navEl.append(h('div', { class: 'resource-nav-group' }, [
-        h('span', { class: 'resource-nav-title', text: group.label }),
-        ...group.sections.map((id) =>
+      navEl.append(
+        h('div', { class: 'resource-nav-group' }, [
+          h('div', { class: 'resource-nav-head' }, [
+            h('span', { class: 'resource-nav-chevron', text: '▾' }),
+            h('span', { class: 'resource-nav-title', text: group.label }),
+            h('span', {
+              class: 'resource-nav-count',
+              text: String(group.sections.length),
+            }),
+          ]),
           h(
-            'button',
-            {
-              class: `resource-nav-item${id === sectionId ? ' active' : ''}`,
-              attrs: { type: 'button' },
-              on: {
-                click: () => {
-                  sectionId = id;
-                  render();
+            'div',
+            { class: 'resource-nav-children' },
+            group.sections.map((id) =>
+              h(
+                'button',
+                {
+                  class: `resource-nav-item${id === sectionId ? ' active' : ''}`,
+                  attrs: {
+                    type: 'button',
+                    'aria-current': id === sectionId ? 'page' : 'false',
+                  },
+                  on: {
+                    click: () => {
+                      sectionId = id;
+                      render();
+                    },
+                  },
                 },
-              },
-            },
-            [h('span', { text: sections[id].label })],
+                [
+                  h('span', { class: 'resource-nav-dot' }),
+                  h('span', { text: sections[id].label }),
+                ],
+              ),
+            ),
           ),
-        ),
-      ]));
+        ]),
+      );
     }
   };
 

@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "settings": {
     "theme": "system",
     "defaultTabKind": "matrix-home",
@@ -233,6 +233,16 @@
   },
   "home": {
     "pageSize": 8,
-    "groups": []
+    "groups": [],
+    "sections": [
+      { "id": "guests", "kind": "guests", "label": "扩展", "view": "list", "visible": true },
+      { "id": "win11-apps", "kind": "win11-apps", "label": "应用", "view": "cards", "visible": true },
+      { "id": "shardx", "kind": "shardx", "label": "ShardX", "view": "list", "visible": true },
+      { "id": "wsl-ports", "kind": "wsl-ports", "label": "WSL 端口", "view": "list", "visible": true },
+      { "id": "docker-containers", "kind": "docker-containers", "label": "容器", "view": "list", "visible": true },
+      { "id": "k8s-forwards", "kind": "k8s-forwards", "label": "端口转发", "view": "list", "visible": true },
+      { "id": "cloud-bookmarks", "kind": "cloud-bookmarks", "label": "书签", "view": "cards", "visible": true },
+      { "id": "cloud-webhooks", "kind": "cloud-webhooks", "label": "Webhook", "view": "list", "visible": true }
+    ]
   }
 }

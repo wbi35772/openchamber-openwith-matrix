@@ -15,6 +15,10 @@ import path from 'node:path';
 import {
   CONFIG_FILE_NAME,
   CONFIG_VERSION,
+  DEFAULT_HOME_SECTIONS,
+  type HomeSectionConfig,
+  type HomeSectionKind,
+  type HomeViewMode,
   type JsonValue,
   type MatrixConfig,
 } from '../shared/types.ts';
@@ -69,14 +73,139 @@ const loadDefaults = async (): Promise<MatrixConfig> => {
   throw new Error(`default config not found (${errors.join('; ')})`);
 };
 
+const HOME_SECTION_KINDS: HomeSectionKind[] = [
+  'guests',
+  'win11-apps',
+  'shardx',
+  'wsl-ports',
+  'docker-containers',
+  'k8s-forwards',
+  'cloud-bookmarks',
+  'cloud-webhooks',
+  'custom-group',
+];
+
+const HOME_VIEW_MODES: HomeViewMode[] = ['list', 'cards', 'compact'];
+
+const defaultSectionFor = (kind: HomeSectionKind): HomeSectionConfig | undefined =>
+  DEFAULT_HOME_SECTIONS.find((section) => section.kind === kind);
+
+const uniqueSectionId = (wanted: string, seen: Set<string>): string => {
+  if (!seen.has(wanted)) {
+    seen.add(wanted);
+    return wanted;
+  }
+  let index = 2;
+  while (seen.has(`${wanted}-${index}`)) index += 1;
+  const id = `${wanted}-${index}`;
+  seen.add(id);
+  return id;
+};
+
+const normalizeSections = (
+  raw: unknown,
+  groups: MatrixConfig['home']['groups'],
+): HomeSectionConfig[] => {
+  const seen = new Set<string>();
+  const sections: HomeSectionConfig[] = [];
+  for (const entry of Array.isArray(raw) ? raw : []) {
+    if (!isRecord(entry)) continue;
+    const kind = HOME_SECTION_KINDS.find((value) => value === entry.kind);
+    if (!kind) continue;
+    const fallback = defaultSectionFor(kind);
+    const groupId =
+      kind === 'custom-group' && typeof entry.groupId === 'string' && entry.groupId.trim()
+        ? entry.groupId.trim()
+        : undefined;
+    if (kind === 'custom-group' && !groupId) continue;
+    const label =
+      typeof entry.label === 'string' && entry.label.trim()
+        ? entry.label.trim()
+        : fallback?.label ?? kind;
+    const view = HOME_VIEW_MODES.find((value) => value === entry.view) ?? fallback?.view ?? 'list';
+    sections.push({
+      id: uniqueSectionId(
+        typeof entry.id === 'string' && entry.id.trim()
+          ? entry.id.trim()
+          : fallback?.id ?? `section-${kind}`,
+        seen,
+      ),
+      kind,
+      label,
+      view,
+      visible: entry.visible !== false,
+      ...(entry.removed === true ? { removed: true } : {}),
+      ...(groupId ? { groupId } : {}),
+    });
+  }
+
+  for (const fallback of DEFAULT_HOME_SECTIONS) {
+    if (sections.some((section) => section.kind === fallback.kind)) continue;
+    sections.push({
+      ...fallback,
+      id: uniqueSectionId(fallback.id, seen),
+    });
+  }
+
+  const knownGroups = new Set(groups.map((group) => group.id));
+  const kept = sections.filter(
+    (section) => section.kind !== 'custom-group' || (section.groupId && knownGroups.has(section.groupId)),
+  );
+  for (const group of groups) {
+    const existing = kept.find(
+      (section) => section.kind === 'custom-group' && section.groupId === group.id,
+    );
+    if (existing) {
+      existing.label = group.name || existing.label;
+      continue;
+    }
+    kept.push({
+      id: uniqueSectionId(`group:${group.id}`, seen),
+      kind: 'custom-group',
+      label: group.name || '自定义分组',
+      view: 'cards',
+      visible: true,
+      groupId: group.id,
+    });
+  }
+  return kept;
+};
+
 /** Keep a merged config structurally usable even if the user file is partial. */
 const normalize = (config: MatrixConfig): MatrixConfig => {
   const next = config;
   next.version = CONFIG_VERSION;
   next.settings ??= {} as MatrixConfig['settings'];
   next.groups ??= {} as MatrixConfig['groups'];
-  next.home ??= { pageSize: 8, groups: [] };
+  next.home ??= { pageSize: 8, groups: [], sections: [] };
   if (!Array.isArray(next.home.groups)) next.home.groups = [];
+  next.home.groups = next.home.groups
+    .filter(isRecord)
+    .map((group, groupIndex) => ({
+      id:
+        typeof group.id === 'string' && group.id.trim()
+          ? group.id.trim()
+          : `group-${groupIndex + 1}`,
+      name: typeof group.name === 'string' && group.name.trim() ? group.name.trim() : '未命名分组',
+      items: Array.isArray(group.items)
+        ? group.items.filter(isRecord).map((item, itemIndex) => ({
+            id:
+              typeof item.id === 'string' && item.id.trim()
+                ? item.id.trim()
+                : `item-${groupIndex + 1}-${itemIndex + 1}`,
+            kind:
+              item.kind === 'guest' || item.kind === 'app' || item.kind === 'bookmark'
+                ? item.kind
+                : 'url',
+            ref: typeof item.ref === 'string' ? item.ref : '',
+            ...(typeof item.label === 'string' && item.label.trim()
+              ? { label: item.label.trim() }
+              : {}),
+            ...(typeof item.icon === 'string' && item.icon.trim() ? { icon: item.icon.trim() } : {}),
+          }))
+        : [],
+    }));
+  next.home.sections = normalizeSections(next.home.sections, next.home.groups);
   if (
     typeof next.home.pageSize !== 'number' ||
     !Number.isFinite(next.home.pageSize) ||

@@ -9,7 +9,7 @@
  */
 
 export const MATRIX_VERSION = '2.0.0';
-export const CONFIG_VERSION = 3;
+export const CONFIG_VERSION = 4;
 export const CONFIG_FILE_NAME = 'openwith-matrix.json';
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -34,7 +34,58 @@ export interface MatrixConfig {
 export interface HomeConfig {
   pageSize: number;
   groups: HomeGroup[];
+  sections: HomeSectionConfig[];
 }
+
+export type HomeSectionKind =
+  | 'guests'
+  | 'win11-apps'
+  | 'shardx'
+  | 'wsl-ports'
+  | 'docker-containers'
+  | 'k8s-forwards'
+  | 'cloud-bookmarks'
+  | 'cloud-webhooks'
+  | 'custom-group';
+
+export type HomeViewMode = 'list' | 'cards' | 'compact';
+
+export interface HomeSectionConfig {
+  id: string;
+  kind: HomeSectionKind;
+  label: string;
+  view: HomeViewMode;
+  visible: boolean;
+  removed?: boolean;
+  groupId?: string;
+}
+
+/**
+ * Built-in home tabs. The shipped JSON repeats these values, but normalize uses
+ * this list to restore any tab a user config is missing.
+ */
+export const DEFAULT_HOME_SECTIONS: HomeSectionConfig[] = [
+  { id: 'guests', kind: 'guests', label: '扩展', view: 'list', visible: true },
+  { id: 'win11-apps', kind: 'win11-apps', label: '应用', view: 'cards', visible: true },
+  { id: 'shardx', kind: 'shardx', label: 'ShardX', view: 'list', visible: true },
+  { id: 'wsl-ports', kind: 'wsl-ports', label: 'WSL 端口', view: 'list', visible: true },
+  {
+    id: 'docker-containers',
+    kind: 'docker-containers',
+    label: '容器',
+    view: 'list',
+    visible: true,
+  },
+  { id: 'k8s-forwards', kind: 'k8s-forwards', label: '端口转发', view: 'list', visible: true },
+  {
+    id: 'cloud-bookmarks',
+    kind: 'cloud-bookmarks',
+    label: '书签',
+    view: 'cards',
+    visible: true,
+  },
+  { id: 'cloud-webhooks', kind: 'cloud-webhooks', label: 'Webhook', view: 'list', visible: true },
+];
 
 export interface HomeGroup {
   id: string;

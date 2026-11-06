@@ -1,9 +1,11 @@
 /**
- * Matrix home view: collapsible resource groups with pagination.
+ * Matrix home view: one configurable resource tab at a time.
  *
- * The view is stateless apart from small form/filter/page values kept at module
- * scope, so a snapshot refresh can rebuild the whole tree without losing the
- * user's K8s forward draft, guest search or current page.
+ * Tabs are stored in `home.sections`, so labels, order, visibility and the
+ * per-tab view mode survive restarts. The view is otherwise stateless apart
+ * from small form/filter/page values kept at module scope, so a snapshot
+ * refresh can rebuild the whole tree without losing the user's K8s forward
+ * draft, guest search or current page.
  */
 
 import type {
@@ -13,6 +15,8 @@ import type {
   GuestSummary,
   HomeGroup,
   HomeItem,
+  HomeSectionConfig,
+  HomeViewMode,
   MatrixSnapshot,
   ShardxInstance,
 } from '../../shared/types.ts';
@@ -21,13 +25,13 @@ import { badge, button, clear, empty, errorText, h, tooltip } from '../dom.ts';
 import type { ResourceSection } from './resourceEditorView.ts';
 
 export interface HomeActions {
-  refresh(): void;
   rerender(): void;
-  openConfig(): void;
+  openManageMenu(anchor: HTMLElement): void;
   editGroups(): void;
+  editTabs(): void;
   editResources(section: ResourceSection): void;
-  openLogs(): void;
-  openTerminal(): void;
+  setHomeView(sectionId: string, view: HomeViewMode): void;
+  moveHomeSection(sectionId: string, beforeId: string | null): void;
   openGuest(guest: GuestSummary): void;
   toggleGuest(guest: GuestSummary, enabled: boolean): void;
   openApp(app: AppSummary): void;
@@ -56,9 +60,11 @@ export interface HomeState {
   directory: string | null;
 }
 
-interface CardOptions {
-  actions?: Child[];
-  open?: boolean;
+interface SectionRender {
+  subtitle: string;
+  count: number;
+  toolbar: Child[];
+  body: Child[];
 }
 
 const forwardForm = {
@@ -70,9 +76,10 @@ const forwardForm = {
 };
 
 const pages = new Map<string, number>();
-const sectionState = new Map<string, boolean>();
 let guestQuery = '';
 let focusGuestSearch = false;
+let activeSectionId: string | null = null;
+let resetScroll = false;
 
 const initial = (name: string): string => name.trim().slice(0, 1).toUpperCase() || '?';
 
@@ -145,101 +152,7 @@ const attachTip = (
   ]);
 };
 
-const isOpen = (id: string, fallback: boolean): boolean => sectionState.get(id) ?? fallback;
-
-const cardSection = (
-  id: string,
-  title: string,
-  subtitle: string | null,
-  body: Child[],
-  actions: HomeActions,
-  options: CardOptions = {},
-): HTMLElement => {
-  const open = isOpen(id, options.open ?? false);
-  const toggle = (): void => {
-    sectionState.set(id, !open);
-    actions.rerender();
-  };
-  const header = h(
-    'header',
-    {
-      class: 'card-head clickable',
-      attrs: {
-        'data-section': id,
-        role: 'button',
-        tabindex: '0',
-        'aria-expanded': open ? 'true' : 'false',
-      },
-      on: {
-        click: toggle,
-        keydown: (event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            toggle();
-          }
-        },
-      },
-    },
-    [
-      h('span', { class: 'card-chevron', text: open ? '▾' : '▸' }),
-      h('div', { class: 'card-titles' }, [
-        h('h2', { text: title }),
-        subtitle ? h('p', { class: 'card-subtitle', text: subtitle }) : null,
-      ]),
-      options.actions?.length
-        ? h(
-            'div',
-            {
-              class: 'card-actions',
-              on: { click: (event) => event.stopPropagation() },
-            },
-            options.actions,
-          )
-        : null,
-    ],
-  );
-  return h(
-    'section',
-    { class: `card${open ? '' : ' collapsed'}`, attrs: { 'data-card': id } },
-    [header, open ? h('div', { class: 'card-body' }, body) : null],
-  );
-};
-
-const renderOverview = (snap: MatrixSnapshot, jump: (id: string) => void): HTMLElement => {
-  const enabledGuests = snap.guests.filter((guest) => guest.enabled).length;
-  const installedApps = snap.apps.filter((app) => app.installed).length;
-  const openPorts = snap.wsl.ports.filter((port) => port.open).length;
-  const runningContainers = snap.docker.containers.filter((item) => item.state === 'running').length;
-  const runningForwards = snap.k8s.forwards.filter((item) => item.running).length;
-  const stats: Array<{ label: string; value: string; target: string; hint: string }> = [
-    { label: '扩展', value: `${enabledGuests}/${snap.guests.length}`, target: 'guests', hint: '查看扩展' },
-    { label: '应用', value: `${installedApps}/${snap.apps.length}`, target: 'win11', hint: '查看 Windows 应用' },
-    { label: 'ShardX', value: `${snap.shardx.running.length}/${snap.shardx.expected}`, target: 'win11', hint: '查看 ShardX 实例' },
-    { label: 'WSL 端口', value: `${openPorts}/${snap.wsl.ports.length}`, target: 'wsl', hint: '查看 WSL 端口' },
-    { label: '容器', value: `${runningContainers}/${snap.docker.containers.length}`, target: 'docker', hint: '查看 Docker 容器' },
-    { label: '端口转发', value: String(runningForwards), target: 'k8s', hint: '查看 Kubernetes 端口转发' },
-  ];
-  return h(
-    'div',
-    { class: 'stat-grid' },
-    stats.map((stat) =>
-      h(
-        'button',
-        {
-          class: 'stat',
-          attrs: { type: 'button', title: stat.hint },
-          on: { click: () => jump(stat.target) },
-        },
-        [
-          h('span', { class: 'stat-value', text: stat.value }),
-          h('span', { class: 'stat-label', text: stat.label }),
-        ],
-      ),
-    ),
-  );
-};
-
-const renderGuests = (snap: MatrixSnapshot, actions: HomeActions): HTMLElement => {
+const renderGuests = (snap: MatrixSnapshot, actions: HomeActions): SectionRender => {
   const pageSize = pageSizeOf(snap);
   const hidden = new Set(snap.config.groups.guests.hidden);
   const order = new Map(snap.config.groups.guests.order.map((id, index) => [id, index]));
@@ -333,25 +246,23 @@ const renderGuests = (snap: MatrixSnapshot, actions: HomeActions): HTMLElement =
     },
   });
 
-  return cardSection(
-    'guests',
-    '扩展',
-    `${all.length} 个已安装 guest${needle ? ` · 匹配 ${filtered.length}` : ''}`,
-    [
+  return {
+    subtitle: `${all.length} 个已安装 guest${needle ? ` · 匹配 ${filtered.length}` : ''}`,
+    count: all.length,
+    toolbar: [button('编辑', () => actions.editResources('guests'))],
+    body: [
       search,
       rows.length
         ? h('div', { class: 'guest-list' }, rows)
         : empty(needle ? '没有匹配的扩展' : '没有已安装的扩展'),
       pager('guests', filtered.length, pageSize, actions),
     ],
-    actions,
-    { open: true, actions: [button('编辑', () => actions.editResources('guests')), button('刷新', actions.refresh)] },
-  );
+  };
 };
 
-const renderWin11 = (snap: MatrixSnapshot, actions: HomeActions): HTMLElement => {
-  const pageSize = pageSizeOf(snap);
-  const appTiles = snap.apps.map((app) => {
+const renderWin11Apps = (snap: MatrixSnapshot, actions: HomeActions): SectionRender => {
+  const installed = snap.apps.filter((app) => app.installed).length;
+  const tiles = snap.apps.map((app) => {
     const tile = h(
       'button',
       {
@@ -374,6 +285,16 @@ const renderWin11 = (snap: MatrixSnapshot, actions: HomeActions): HTMLElement =>
     return tile;
   });
 
+  return {
+    subtitle: `${installed}/${snap.apps.length} 个应用可用`,
+    count: snap.apps.length,
+    toolbar: [button('编辑应用', () => actions.editResources('win11-apps'))],
+    body: [tiles.length ? h('div', { class: 'app-grid' }, tiles) : empty('没有配置应用')],
+  };
+};
+
+const renderShardx = (snap: MatrixSnapshot, actions: HomeActions): SectionRender => {
+  const pageSize = pageSizeOf(snap);
   const shardx = snap.shardx;
   const instances = slicePage(shardx.instances, 'shardx', pageSize).map((instance) => {
     const running = instance.running;
@@ -400,35 +321,25 @@ const renderWin11 = (snap: MatrixSnapshot, actions: HomeActions): HTMLElement =>
     return row;
   });
 
-  return cardSection(
-    'win11',
-    'Windows 应用与 ShardX',
-    `ShardX ${shardx.online ? '在线' : '离线'} · ${shardx.running.length}/${shardx.expected} 运行`,
-    [
-      h('div', { class: 'app-grid' }, appTiles),
-      h('div', { class: 'subhead' }, [
-        h('h3', { text: 'ShardX 实例' }),
-        h('div', { class: 'subhead-actions' }, [
-          badge(shardx.online ? 'API 在线' : 'API 离线', shardx.online ? 'ok' : 'warn'),
-          button('启动浏览器', actions.shardxLaunch),
-        ]),
-      ]),
+  return {
+    subtitle: `ShardX ${shardx.online ? '在线' : '离线'} · ${shardx.running.length}/${shardx.expected} 运行`,
+    count: shardx.instances.length,
+    toolbar: [
+      badge(shardx.online ? 'API 在线' : 'API 离线', shardx.online ? 'ok' : 'warn'),
+      button('启动浏览器', actions.shardxLaunch),
+      button('编辑', () => actions.editResources('shardx')),
+    ],
+    body: [
       shardx.error && !shardx.online ? errorText(`ShardX: ${shardx.error}`) : null,
-      instances.length ? h('div', { class: 'shardx-list' }, instances) : empty('配置中没有 ShardX 实例'),
+      instances.length
+        ? h('div', { class: 'shardx-list' }, instances)
+        : empty('配置中没有 ShardX 实例'),
       pager('shardx', shardx.instances.length, pageSize, actions),
     ],
-    actions,
-    {
-      open: false,
-      actions: [
-        button('编辑应用', () => actions.editResources('win11-apps')),
-        button('编辑 ShardX', () => actions.editResources('shardx')),
-      ],
-    },
-  );
+  };
 };
 
-const renderWsl = (snap: MatrixSnapshot, actions: HomeActions): HTMLElement => {
+const renderWslPorts = (snap: MatrixSnapshot, actions: HomeActions): SectionRender => {
   const wsl = snap.wsl;
   const ports = wsl.ports.map((port) => {
     const openable = port.protocol !== 'tcp';
@@ -468,13 +379,16 @@ const renderWsl = (snap: MatrixSnapshot, actions: HomeActions): HTMLElement => {
     return row;
   });
 
-  return cardSection(
-    'wsl',
-    'WSL2 资源',
-    wsl.available
+  return {
+    subtitle: wsl.available
       ? `${wsl.distros.length} 个发行版${wsl.ip ? ` · IP ${wsl.ip}` : ''}`
       : 'WSL 不可用',
-    [
+    count: ports.length,
+    toolbar: [
+      button('编辑发行版', () => actions.editResources('wsl-distros')),
+      button('编辑端口', () => actions.editResources('wsl-ports')),
+    ],
+    body: [
       wsl.distros.length
         ? h(
             'div',
@@ -487,18 +401,10 @@ const renderWsl = (snap: MatrixSnapshot, actions: HomeActions): HTMLElement => {
       ports.length ? h('div', { class: 'port-list' }, ports) : empty('没有配置端口'),
       wsl.error ? errorText(`WSL: ${wsl.error}`) : null,
     ],
-    actions,
-    {
-      open: false,
-      actions: [
-        button('编辑发行版', () => actions.editResources('wsl-distros')),
-        button('编辑端口', () => actions.editResources('wsl-ports')),
-      ],
-    },
-  );
+  };
 };
 
-const renderDocker = (snap: MatrixSnapshot, actions: HomeActions): HTMLElement => {
+const renderDockerContainers = (snap: MatrixSnapshot, actions: HomeActions): SectionRender => {
   const pageSize = pageSizeOf(snap);
   const docker = snap.docker;
   const rows = slicePage(docker.containers, 'docker', pageSize).map((container) => {
@@ -523,11 +429,14 @@ const renderDocker = (snap: MatrixSnapshot, actions: HomeActions): HTMLElement =
     return row;
   });
 
-  return cardSection(
-    'docker',
-    'Docker',
-    docker.available ? `${docker.containers.length} 个容器` : 'Docker 不可用',
-    [
+  return {
+    subtitle: docker.available ? `${docker.containers.length} 个容器` : 'Docker 不可用',
+    count: docker.containers.length,
+    toolbar: [
+      button('编辑 Compose', () => actions.editResources('docker-compose')),
+      button('编辑容器', () => actions.editResources('docker-containers')),
+    ],
+    body: [
       h('div', { class: 'button-row' }, [
         button('Compose 启动', () => actions.dockerCompose('up'), { variant: 'primary' }),
         button('Compose 停止', () => actions.dockerCompose('down')),
@@ -538,18 +447,10 @@ const renderDocker = (snap: MatrixSnapshot, actions: HomeActions): HTMLElement =
       pager('docker', docker.containers.length, pageSize, actions),
       docker.error ? errorText(`Docker: ${docker.error}`) : null,
     ],
-    actions,
-    {
-      open: false,
-      actions: [
-        button('编辑 Compose', () => actions.editResources('docker-compose')),
-        button('编辑容器', () => actions.editResources('docker-containers')),
-      ],
-    },
-  );
+  };
 };
 
-const renderK8s = (snap: MatrixSnapshot, actions: HomeActions): HTMLElement => {
+const renderK8sForwards = (snap: MatrixSnapshot, actions: HomeActions): SectionRender => {
   const pageSize = pageSizeOf(snap);
   const k8s = snap.k8s;
   const settings = snap.config.settings.k8s;
@@ -679,13 +580,16 @@ const renderK8s = (snap: MatrixSnapshot, actions: HomeActions): HTMLElement => {
     return row;
   });
 
-  return cardSection(
-    'k8s',
-    'Kubernetes',
-    k8s.available
-      ? `${k8s.contexts.length} 个上下文 · ${k8s.pods.length} 个 pod`
+  return {
+    subtitle: k8s.available
+      ? `${k8s.contexts.length} 个上下文 · ${k8s.forwards.length} 个转发 · ${k8s.pods.length} 个 pod`
       : 'kubectl 不可用',
-    [
+    count: k8s.forwards.length,
+    toolbar: [
+      button('编辑 Context', () => actions.editResources('k8s-contexts')),
+      button('编辑转发', () => actions.editResources('k8s-forwards')),
+    ],
+    body: [
       contexts.length
         ? h(
             'div',
@@ -709,18 +613,10 @@ const renderK8s = (snap: MatrixSnapshot, actions: HomeActions): HTMLElement => {
       pager('k8s-pods', k8s.pods.length, pageSize, actions),
       k8s.error ? errorText(`Kubernetes: ${k8s.error}`) : null,
     ],
-    actions,
-    {
-      open: false,
-      actions: [
-        button('编辑 Context', () => actions.editResources('k8s-contexts')),
-        button('编辑转发', () => actions.editResources('k8s-forwards')),
-      ],
-    },
-  );
+  };
 };
 
-const renderCloud = (snap: MatrixSnapshot, actions: HomeActions): HTMLElement => {
+const renderCloudBookmarks = (snap: MatrixSnapshot, actions: HomeActions): SectionRender => {
   const pageSize = pageSizeOf(snap);
   const groups = new Map<string, CloudBookmark[]>();
   for (const bookmark of snap.config.groups.cloud.bookmarks) {
@@ -760,6 +656,15 @@ const renderCloud = (snap: MatrixSnapshot, actions: HomeActions): HTMLElement =>
     ]);
   });
 
+  return {
+    subtitle: `${snap.config.groups.cloud.bookmarks.length} 个书签`,
+    count: snap.config.groups.cloud.bookmarks.length,
+    toolbar: [button('编辑书签', () => actions.editResources('cloud-bookmarks'))],
+    body: bookmarkGroups.length ? bookmarkGroups : [empty('没有配置书签')],
+  };
+};
+
+const renderCloudWebhooks = (snap: MatrixSnapshot, actions: HomeActions): SectionRender => {
   const webhooks = snap.config.groups.cloud.webhooks.map((webhook) => {
     const row = h('div', { class: 'webhook-row' }, [
       h('div', { class: 'webhook-meta' }, [
@@ -775,24 +680,14 @@ const renderCloud = (snap: MatrixSnapshot, actions: HomeActions): HTMLElement =>
     return row;
   });
 
-  return cardSection(
-    'cloud',
-    '云书签与 Webhook',
-    `${snap.config.groups.cloud.bookmarks.length} 个书签 · ${snap.config.groups.cloud.webhooks.length} 个 webhook`,
-    [
-      ...bookmarkGroups,
-      webhooks.length ? h('div', { class: 'subhead' }, [h('h3', { text: 'Webhook' })]) : null,
-      webhooks.length ? h('div', { class: 'webhook-list' }, webhooks) : null,
+  return {
+    subtitle: `${snap.config.groups.cloud.webhooks.length} 个 webhook`,
+    count: snap.config.groups.cloud.webhooks.length,
+    toolbar: [button('编辑 Webhook', () => actions.editResources('cloud-webhooks'))],
+    body: [
+      webhooks.length ? h('div', { class: 'webhook-list' }, webhooks) : empty('没有配置 webhook'),
     ],
-    actions,
-    {
-      open: false,
-      actions: [
-        button('编辑书签', () => actions.editResources('cloud-bookmarks')),
-        button('编辑 Webhook', () => actions.editResources('cloud-webhooks')),
-      ],
-    },
-  );
+  };
 };
 
 interface ResolvedItem {
@@ -869,71 +764,236 @@ const resolveItem = (snap: MatrixSnapshot, item: HomeItem, actions: HomeActions)
   }
 };
 
-const renderCustomGroups = (snap: MatrixSnapshot, actions: HomeActions): HTMLElement[] => {
-  const groups: HomeGroup[] = snap.config.home?.groups ?? [];
-  if (!groups.length) {
-    return [
-      h('section', { class: 'card', attrs: { 'data-card': 'custom' } }, [
-        h('header', { class: 'card-head' }, [
-          h('div', { class: 'card-titles' }, [
-            h('h2', { text: '自定义分组' }),
-            h('p', {
-              class: 'card-subtitle',
-              text: '把扩展、应用、书签和本地端口应用按用途放到一起',
-            }),
-          ]),
-          h('div', { class: 'card-actions' }, [
-            button('新建分组', actions.editGroups, { variant: 'primary' }),
-          ]),
-        ]),
-        h('div', { class: 'card-body' }, [
-          h('p', {
-            class: 'empty',
-            text: '还没有分组。点击“新建分组”，把常用扩展或本地服务整理到同一组。',
-          }),
-        ]),
-      ]),
-    ];
+const renderCustomGroup = (
+  section: HomeSectionConfig,
+  snap: MatrixSnapshot,
+  actions: HomeActions,
+): SectionRender => {
+  const group: HomeGroup | undefined = snap.config.home.groups.find(
+    (entry) => entry.id === section.groupId,
+  );
+  if (!group) {
+    return {
+      subtitle: '分组已删除',
+      count: 0,
+      toolbar: [button('编辑分组', actions.editGroups)],
+      body: [empty('这个分组已不存在')],
+    };
   }
 
   const pageSize = pageSizeOf(snap);
-  return groups.map((group) => {
-    const items = slicePage(group.items, `home:${group.id}`, pageSize).map((item) => {
-      const resolved = resolveItem(snap, item, actions);
-      const tile = h(
-        'button',
-        {
-          class: `custom-item${resolved.disabled ? ' disabled' : ''}`,
-          attrs: { type: 'button', disabled: resolved.disabled },
-          on: { click: resolved.open },
-        },
-        [
-          h('span', { class: 'custom-icon', text: resolved.icon }),
-          h('div', { class: 'custom-meta' }, [
-            h('span', { class: 'custom-name', text: resolved.label }),
-            h('span', { class: 'custom-detail', text: resolved.detail }),
-          ]),
-          badge(resolved.kindLabel, 'muted'),
-        ],
-      );
-      attachTip(tile, resolved.label, [
-        ['类型', resolved.kindLabel],
-        ['目标', resolved.target],
-        ['状态', resolved.disabled ? '不可用' : '可用'],
-      ]);
-      return tile;
-    });
-    return cardSection(
-      `home:${group.id}`,
-      group.name,
-      `${group.items.length} 项 · 自定义分组`,
-      items.length
-        ? [h('div', { class: 'custom-grid' }, items), pager(`home:${group.id}`, group.items.length, pageSize, actions)]
-        : [empty('这个分组还没有项目')],
-      actions,
-      { open: true, actions: [button('编辑', actions.editGroups)] },
+  const items = slicePage(group.items, `home:${group.id}`, pageSize).map((item) => {
+    const resolved = resolveItem(snap, item, actions);
+    const tile = h(
+      'button',
+      {
+        class: `custom-item${resolved.disabled ? ' disabled' : ''}`,
+        attrs: { type: 'button', disabled: resolved.disabled },
+        on: { click: resolved.open },
+      },
+      [
+        h('span', { class: 'custom-icon', text: resolved.icon }),
+        h('div', { class: 'custom-meta' }, [
+          h('span', { class: 'custom-name', text: resolved.label }),
+          h('span', { class: 'custom-detail', text: resolved.detail }),
+        ]),
+        badge(resolved.kindLabel, 'muted'),
+      ],
     );
+    attachTip(tile, resolved.label, [
+      ['类型', resolved.kindLabel],
+      ['目标', resolved.target],
+      ['状态', resolved.disabled ? '不可用' : '可用'],
+    ]);
+    return tile;
   });
+
+  return {
+    subtitle: `${group.items.length} 项 · 自定义分组`,
+    count: group.items.length,
+    toolbar: [button('编辑分组', actions.editGroups)],
+    body: items.length
+      ? [
+          h('div', { class: 'custom-grid' }, items),
+          pager(`home:${group.id}`, group.items.length, pageSize, actions),
+        ]
+      : [empty('这个分组还没有项目')],
+  };
+};
+
+const renderSection = (
+  section: HomeSectionConfig,
+  snap: MatrixSnapshot,
+  actions: HomeActions,
+): SectionRender => {
+  switch (section.kind) {
+    case 'guests':
+      return renderGuests(snap, actions);
+    case 'win11-apps':
+      return renderWin11Apps(snap, actions);
+    case 'shardx':
+      return renderShardx(snap, actions);
+    case 'wsl-ports':
+      return renderWslPorts(snap, actions);
+    case 'docker-containers':
+      return renderDockerContainers(snap, actions);
+    case 'k8s-forwards':
+      return renderK8sForwards(snap, actions);
+    case 'cloud-bookmarks':
+      return renderCloudBookmarks(snap, actions);
+    case 'cloud-webhooks':
+      return renderCloudWebhooks(snap, actions);
+    default:
+      return renderCustomGroup(section, snap, actions);
+  }
+};
+
+const sectionCount = (section: HomeSectionConfig, snap: MatrixSnapshot): number => {
+  switch (section.kind) {
+    case 'guests': {
+      const hidden = new Set(snap.config.groups.guests.hidden);
+      return snap.guests.filter((guest) => !hidden.has(guest.id)).length;
+    }
+    case 'win11-apps':
+      return snap.apps.length;
+    case 'shardx':
+      return snap.shardx.instances.length;
+    case 'wsl-ports':
+      return snap.wsl.ports.length;
+    case 'docker-containers':
+      return snap.docker.containers.length;
+    case 'k8s-forwards':
+      return snap.k8s.forwards.length;
+    case 'cloud-bookmarks':
+      return snap.config.groups.cloud.bookmarks.length;
+    case 'cloud-webhooks':
+      return snap.config.groups.cloud.webhooks.length;
+    default:
+      return (
+        snap.config.home.groups.find((group) => group.id === section.groupId)?.items.length ?? 0
+      );
+  }
+};
+
+const visibleSections = (snap: MatrixSnapshot): HomeSectionConfig[] => {
+  const sections = snap.config.home?.sections ?? [];
+  return sections.filter((section) => {
+    if (section.removed || !section.visible) return false;
+    if (section.kind === 'custom-group') {
+      return Boolean(
+        section.groupId && snap.config.home.groups.some((group) => group.id === section.groupId),
+      );
+    }
+    return true;
+  });
+};
+
+const renderTabBar = (
+  sections: HomeSectionConfig[],
+  activeId: string | null,
+  snap: MatrixSnapshot,
+  actions: HomeActions,
+): HTMLElement => {
+  const bar = h('div', {
+    class: 'home-tabs',
+    attrs: { role: 'tablist', 'aria-label': '主页资源标签' },
+  });
+  for (const section of sections) {
+    const active = section.id === activeId;
+    const tab = h(
+      'button',
+      {
+        class: `home-tab${active ? ' active' : ''}`,
+        attrs: {
+          type: 'button',
+          role: 'tab',
+          draggable: 'true',
+          'aria-selected': active ? 'true' : 'false',
+          'data-section-id': section.id,
+          title: `${section.label} · 拖拽排序`,
+        },
+        on: {
+          click: () => {
+            if (activeSectionId === section.id) return;
+            activeSectionId = section.id;
+            resetScroll = true;
+            actions.rerender();
+          },
+        },
+      },
+      [
+        h('span', { class: 'home-tab-label', text: section.label }),
+        h('span', { class: 'home-tab-count', text: String(sectionCount(section, snap)) }),
+      ],
+    );
+    tab.addEventListener('dragstart', (event) => {
+      event.dataTransfer?.setData('text/plain', section.id);
+      tab.classList.add('dragging');
+    });
+    tab.addEventListener('dragend', () => tab.classList.remove('dragging'));
+    tab.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      tab.classList.add('drop-target');
+    });
+    tab.addEventListener('dragleave', () => tab.classList.remove('drop-target'));
+    tab.addEventListener('drop', (event) => {
+      event.preventDefault();
+      tab.classList.remove('drop-target');
+      const dragged = event.dataTransfer?.getData('text/plain');
+      if (!dragged || dragged === section.id) return;
+      const rect = tab.getBoundingClientRect();
+      const after = event.clientX > rect.left + rect.width / 2;
+      const index = sections.findIndex((entry) => entry.id === section.id);
+      const beforeId = after ? sections[index + 1]?.id ?? null : section.id;
+      actions.moveHomeSection(dragged, beforeId);
+    });
+    bar.append(tab);
+  }
+  bar.append(
+    button('＋', actions.editTabs, { class: 'home-tab-add', title: '编辑主页标签' }),
+  );
+  return bar;
+};
+
+const VIEW_MODES: Array<{ mode: HomeViewMode; label: string }> = [
+  { mode: 'list', label: '列表' },
+  { mode: 'cards', label: '卡片' },
+  { mode: 'compact', label: '紧凑' },
+];
+
+const renderPanel = (
+  section: HomeSectionConfig,
+  render: SectionRender,
+  actions: HomeActions,
+): HTMLElement => {
+  const viewSwitch = h(
+    'div',
+    { class: 'view-switch', attrs: { role: 'group', 'aria-label': '视图样式' } },
+    VIEW_MODES.map((view) =>
+      h('button', {
+        class: view.mode === section.view ? 'active' : '',
+        text: view.label,
+        attrs: {
+          type: 'button',
+          title: `切换为${view.label}视图`,
+          'aria-pressed': view.mode === section.view ? 'true' : 'false',
+        },
+        on: { click: () => actions.setHomeView(section.id, view.mode) },
+      }),
+    ),
+  );
+
+  return h('section', { class: 'home-panel', attrs: { 'data-section': section.id } }, [
+    h('header', { class: 'home-panel-head' }, [
+      h('div', { class: 'home-panel-titles' }, [
+        h('h2', { text: section.label }),
+        h('p', { class: 'card-subtitle', text: render.subtitle }),
+      ]),
+      viewSwitch,
+      render.toolbar.length ? h('div', { class: 'home-panel-actions' }, render.toolbar) : null,
+    ]),
+    h('div', { class: `home-panel-body view-${section.view}` }, render.body),
+  ]);
 };
 
 export function mountHome(container: HTMLElement, state: HomeState, actions: HomeActions): void {
@@ -943,8 +1003,13 @@ export function mountHome(container: HTMLElement, state: HomeState, actions: Hom
   container.append(root);
 
   const snap = state.snapshot;
-  const customCount = snap?.config.home?.groups.length ?? 0;
+  const sections = snap ? visibleSections(snap) : [];
+  const customCount = snap?.config.home.groups.length ?? 0;
 
+  const manageButton = button('管理 ▾', () => actions.openManageMenu(manageButton), {
+    class: 'home-manage-button',
+    title: '管理主页标签、默认资源与自定义分组',
+  });
   root.append(
     h('div', { class: 'home-head' }, [
       h('div', {}, [
@@ -952,18 +1017,11 @@ export function mountHome(container: HTMLElement, state: HomeState, actions: Hom
         h('p', {
           class: 'home-subtitle',
           text: snap
-            ? `六个资源组 · ${customCount} 个自定义分组 · 点击分组标题折叠`
+            ? `${sections.length} 个资源标签 · ${customCount} 个自定义分组 · 点击标签切换视图`
             : '正在加载矩阵快照…',
         }),
       ]),
-      h('div', { class: 'home-actions' }, [
-        button('日志', actions.openLogs),
-        button('终端', actions.openTerminal),
-        button('资源', () => actions.editResources('guests')),
-        button('分组', actions.editGroups),
-        button('配置', actions.openConfig),
-        button('刷新', actions.refresh, { variant: 'primary' }),
-      ]),
+      h('div', { class: 'home-actions' }, [manageButton]),
     ]),
   );
 
@@ -978,23 +1036,26 @@ export function mountHome(container: HTMLElement, state: HomeState, actions: Hom
         ),
       );
     }
-    const jump = (id: string): void => {
-      sectionState.set(id, true);
-      actions.rerender();
-      window.setTimeout(() => {
-        container
-          .querySelector(`[data-card="${id}"]`)
-          ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-      }, 40);
-    };
-    root.append(renderOverview(snap, jump));
-    root.append(...renderCustomGroups(snap, actions));
-    root.append(renderGuests(snap, actions));
-    root.append(renderWin11(snap, actions));
-    root.append(renderWsl(snap, actions));
-    root.append(renderDocker(snap, actions));
-    root.append(renderK8s(snap, actions));
-    root.append(renderCloud(snap, actions));
+
+    if (!sections.length) {
+      root.append(
+        h('section', { class: 'home-panel' }, [
+          h('div', { class: 'home-panel-body' }, [
+            h('p', { class: 'empty', text: '所有资源标签都被隐藏了。打开标签编辑器重新显示。' }),
+            button('编辑标签', actions.editTabs, { variant: 'primary' }),
+          ]),
+        ]),
+      );
+    } else {
+      if (!activeSectionId || !sections.some((section) => section.id === activeSectionId)) {
+        activeSectionId = sections[0]?.id ?? null;
+      }
+      const active = sections.find((section) => section.id === activeSectionId) ?? sections[0];
+      if (active) {
+        root.append(renderTabBar(sections, active.id, snap, actions));
+        root.append(renderPanel(active, renderSection(active, snap, actions), actions));
+      }
+    }
   } else {
     root.append(h('p', { class: 'loading', text: state.loading ? '正在加载矩阵快照…' : '尚无快照' }));
   }
@@ -1005,5 +1066,6 @@ export function mountHome(container: HTMLElement, state: HomeState, actions: Hom
     input?.focus();
     input?.setSelectionRange(input.value.length, input.value.length);
   }
-  container.scrollTop = scroll;
+  container.scrollTop = resetScroll ? 0 : scroll;
+  resetScroll = false;
 }

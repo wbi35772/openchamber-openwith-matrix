@@ -20,7 +20,7 @@ OpenWith Matrix 的所有可调项都保存在一个 JSON 文件中。设置界�
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "settings": {},
   "groups": {},
   "home": {}
@@ -29,10 +29,10 @@ OpenWith Matrix 的所有可调项都保存在一个 JSON 文件中。设置界�
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `version` | number | 配置结构版本，当前为 `3` |
+| `version` | number | 配置结构版本，当前为 `4` |
 | `settings` | object | 全局设置 |
 | `groups` | object | 六个资源组的内容 |
-| `home` | object | 矩阵主页分页与自定义分组 |
+| `home` | object | 矩阵主页分页、自定义分组与资源标签 |
 
 ## 3. settings
 
@@ -288,6 +288,18 @@ Windows 应用的 `command` 支持任意本机 `.exe`、`.cmd`、`.bat`；在资
         { "id": "item-4", "kind": "url", "ref": "http://localhost:3000" }
       ]
     }
+  ],
+  "sections": [
+    { "id": "guests", "kind": "guests", "label": "扩展", "view": "list", "visible": true },
+    { "id": "win11-apps", "kind": "win11-apps", "label": "应用", "view": "cards", "visible": true },
+    {
+      "id": "group-dev",
+      "kind": "custom-group",
+      "label": "开发入口",
+      "view": "cards",
+      "visible": true,
+      "groupId": "group-dev"
+    }
   ]
 }
 ```
@@ -302,6 +314,20 @@ Windows 应用的 `command` 支持任意本机 `.exe`、`.cmd`、`.bat`；在资
 | `groups[].items[].ref` | string | guest/app/bookmark 的 ID，或 URL |
 | `groups[].items[].label` | string | 可选显示名 |
 | `groups[].items[].icon` | string | 可选图标键 |
+| `sections[].id` | string | 标签 ID |
+| `sections[].kind` | string | 资源类型，见下表 |
+| `sections[].label` | string | 标签显示名，可随时改名 |
+| `sections[].view` | `list` \| `cards` \| `compact` | 默认视图样式 |
+| `sections[].visible` | boolean | 是否在主页标签栏显示 |
+| `sections[].removed` | boolean | 标记已删除；标签栏隐藏，可在主页标签编辑器恢复 |
+| `sections[].groupId` | string | `custom-group` 标签对应的分组 ID |
+
+内置标签的 `kind` 固定为 `guests`、`win11-apps`、`shardx`、`wsl-ports`、
+`docker-containers`、`k8s-forwards`、`cloud-bookmarks`、`cloud-webhooks`。
+内置标签可以改名、排序、隐藏、删除和切换视图；删除时写入 `removed: true`
+并保留记录，`ConfigStore.normalize` 不会补回已标记删除的内置标签，因此可以在
+主页标签编辑器里恢复。每个自定义分组会自动生成一个 `custom-group` 标签，
+其名称跟随分组名；删除该标签同样使用 `removed: true`，分组本身保留。
 
 自定义分组只影响主页展示，不会创建、删除或移动真实资源。
 
@@ -322,7 +348,7 @@ Windows 应用的 `command` 支持任意本机 `.exe`、`.cmd`、`.bat`；在资
 
 ## 7. 版本与迁移
 
-- `version` 当前为 `3`。`ConfigStore.normalize` 会补齐缺失字段，因此旧文件通常可直接读取。
+- `version` 当前为 `4`。`ConfigStore.normalize` 会补齐缺失字段与内置主页标签，因此旧文件通常可直接读取。
 - 如果未来修改字段含义或删除字段，会提升 `version` 并在 `changelog.md` 说明迁移方式。
 - 降级扩展前先备份配置文件；旧版本可能忽略新字段，但不会删除未知字段。
 
