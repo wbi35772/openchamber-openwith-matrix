@@ -29,7 +29,87 @@ export interface MatrixConfig {
   settings: MatrixSettings;
   groups: MatrixGroups;
   home: HomeConfig;
+  extensionLibrary: ExtensionLibraryConfig;
 }
+
+/**
+ * Categories used by the extension library. Users may rename, reorder, add or
+ * remove them; `id` is the stable key stored in guest assignments.
+ */
+export interface ExtensionCategoryConfig {
+  id: string;
+  name: string;
+}
+
+export interface ExtensionLibraryConfig {
+  categories: ExtensionCategoryConfig[];
+  /** guest id -> category id. Missing ids fall into the fallback category. */
+  assignments: Record<string, string>;
+}
+
+export const DEFAULT_EXTENSION_CATEGORIES: ExtensionCategoryConfig[] = [
+  { id: 'workspace', name: '工作台与界面' },
+  { id: 'dev', name: '开发 / Git / 项目' },
+  { id: 'ai', name: 'AI 模型与用量' },
+  { id: 'memory', name: '记忆与上下文' },
+  { id: 'monitor', name: '运行监控' },
+  { id: 'infra', name: '基础设施 / 云 / 容器' },
+  { id: 'theme', name: '主题与遗留' },
+  { id: 'other', name: '其他' },
+];
+
+export const DEFAULT_EXTENSION_ASSIGNMENTS: Record<string, string> = {
+  openwith: 'workspace',
+  'files-nav': 'workspace',
+  'session-focus': 'workspace',
+  'agent-progress-probe': 'workspace',
+  queue: 'workspace',
+  canvas: 'workspace',
+  excalidraw: 'workspace',
+  'obsidian-panel': 'workspace',
+  'server-browser': 'workspace',
+  'ios-simulator': 'workspace',
+  'openchamber-translation': 'workspace',
+
+  'git-manager': 'dev',
+  'github-task-board': 'dev',
+  'gitlab-pipelines': 'dev',
+  'kanban-board': 'dev',
+  'openspec-board': 'dev',
+  makefile: 'dev',
+  'skills-manager': 'dev',
+  'agents-manager': 'dev',
+  'prompt-override': 'dev',
+
+  'openchamber-providers': 'ai',
+  'openchamber-router': 'ai',
+  balance: 'ai',
+  'deepseek-usage': 'ai',
+  'commandcode-usage': 'ai',
+  'token-plan-usage': 'ai',
+  'claude-accounts': 'ai',
+  'mlx-scope': 'ai',
+  'live-tps': 'ai',
+  'tps-meter': 'ai',
+  'context-inspector': 'ai',
+  'dcp-rc-stats': 'ai',
+
+  'engram-memory': 'memory',
+  'openchamber-memory-graph-ui': 'memory',
+  'magic-context-sidebar': 'memory',
+
+  'resource-monitor': 'monitor',
+  'system-monitor': 'monitor',
+  wakatime: 'monitor',
+
+  docker: 'infra',
+  'argocd-observer': 'infra',
+  instacloud: 'infra',
+  'instabox-matrix': 'infra',
+  'shardx-workspace': 'infra',
+
+  'everforest-theme': 'theme',
+};
 
 export interface HomeConfig {
   pageSize: number;
@@ -316,12 +396,22 @@ export interface GuestSummary {
   id: string;
   name: string;
   icon?: string;
+  /** Inline data URL for a file-based panel icon, resolved by the service. */
+  iconData?: string;
   enabled: boolean;
   version?: string;
   source?: string;
   path?: string;
   entry?: string;
   pageEntry?: string;
+  /** Git install source reported by the host, when the guest was cloned. */
+  originUrl?: string;
+  /** Repository declared by the guest's package.json. */
+  repoUrl?: string;
+  /** Newer version found by the last host update check. */
+  latestVersion?: string;
+  /** True when the last update check completed and produced a result set. */
+  updateChecked?: boolean;
   capabilities?: {
     requested?: string[];
     granted?: string[];

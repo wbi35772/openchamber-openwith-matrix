@@ -10,6 +10,8 @@ import { connectHost } from '@openchamber/sdk';
 import type { HostClient, HostReadyContext } from '@openchamber/sdk';
 import { applyHostReady } from '@openchamber/sdk/ui';
 
+import { watchReadableTheme } from './themeGuard.ts';
+
 import type {
   AppSummary,
   BrowserFrame,
@@ -35,11 +37,12 @@ import type {
   WebhookResult,
   WorkspaceTab,
 } from '../shared/types.ts';
-import { badge, button, clear, errorText, h } from './dom.ts';
+import { badge, button, clear, dismissTooltip, errorText, h } from './dom.ts';
 import { TabManager } from './tabManager.ts';
 import { mountHome, type HomeActions, type HomeState } from './views/matrixHomeView.ts';
 import { createLogPane, type LogPaneHandle } from './views/logStreamView.ts';
 import { openConfigModal } from './views/configModalView.ts';
+import { openExtensionCategories } from './views/extensionCategoriesView.ts';
 import { openHomeGroups } from './views/homeGroupsView.ts';
 import { openHomeTabs } from './views/homeTabsView.ts';
 import { openResourceEditor, type ResourceSection } from './views/resourceEditorView.ts';
@@ -74,6 +77,7 @@ let homeState: HomeState = { snapshot: null, loading: true, error: null, directo
 let tabs: TabManager | null = null;
 let shell: Shell | null = null;
 let refreshing = false;
+let guestUpdateCheckStarted = false;
 let tabMenu: HTMLElement | null = null;
 let toastTimer: number | null = null;
 
@@ -214,6 +218,7 @@ const homeActions: HomeActions = {
   editGroups: () => openHomeGroupsEditor(),
   editTabs: () => openHomeTabsEditor(),
   editResources: (section) => openResources(section),
+  editCategories: () => openExtensionCategoriesEditor(),
   setHomeView: (sectionId, view) => setHomeView(sectionId, view),
   moveHomeSection: (sectionId, beforeId) => moveHomeSection(sectionId, beforeId),
   openGuest,
@@ -221,6 +226,23 @@ const homeActions: HomeActions = {
     void runAction(`${enabled ? '启用' : '禁用'} ${guest.name}`, () =>
       request('PUT', `/guests/${encodeURIComponent(guest.id)}/enabled`, { enabled }),
     );
+  },
+  updateGuest: (guest) => {
+    notify(`正在更新 ${guest.name}…`, 'info');
+    void runAction(`更新 ${guest.name}`, () =>
+      request('POST', `/guests/${encodeURIComponent(guest.id)}/update`),
+    );
+  },
+  checkGuestUpdates: () => {
+    notify('正在检查扩展更新…', 'info');
+    void runAction('检查扩展更新', () =>
+      request('POST', '/guests/updates/check', { force: true }),
+    );
+  },
+  openExternal: (url) => {
+    void host.openUrl(url).catch((error: unknown) => {
+      notify(`打开地址失败：${messageOf(error)}`, 'error');
+    });
   },
   openApp: (app: AppSummary) => {
     const directory = ready?.directory ?? '';
@@ -745,6 +767,7 @@ const ensurePane = (tab: WorkspaceTab): PaneRecord => {
 };
 
 const renderHome = (): void => {
+  dismissTooltip();
   const record = panes.get('home');
   if (record) mountHome(record.el, homeState, homeActions);
 };
@@ -770,7 +793,18 @@ const refreshSnapshot = async (showLoading: boolean): Promise<void> => {
     refreshing = false;
     renderHome();
     renderStatus();
+    if (snapshot && !guestUpdateCheckStarted) autoCheckGuestUpdates();
   }
+};
+
+const autoCheckGuestUpdates = (): void => {
+  if (guestUpdateCheckStarted) return;
+  guestUpdateCheckStarted = true;
+  void request('POST', '/guests/updates/check', { force: false })
+    .then(() => refreshSnapshot(false))
+    .catch(() => {
+      /* the visible 检查更新 button remains available */
+    });
 };
 
 const renderStatus = (): void => {
@@ -1154,6 +1188,23 @@ const openHomeGroupsEditor = (): void => {
   });
 };
 
+const openExtensionCategoriesEditor = (): void => {
+  if (!config || !snapshot) {
+    notify('矩阵快照尚未加载', 'error');
+    return;
+  }
+  openExtensionCategories({
+    config,
+    guests: snapshot.guests,
+    onSave: async (library) => {
+      config = await request<MatrixConfig>('PUT', '/config', { extensionLibrary: library });
+      notify('扩展分类已保存', 'ok');
+      await refreshAfterSave();
+    },
+    onClose: () => undefined,
+  });
+};
+
 const saveHomeSections = async (
   sections: HomeSectionConfig[],
   message: string,
@@ -1282,6 +1333,7 @@ const boot = async (): Promise<void> => {
     });
   });
   applyHostReady(ready, document.documentElement);
+  watchReadableTheme(document.documentElement);
   shell = buildShell();
   mount.append(shell.root);
 

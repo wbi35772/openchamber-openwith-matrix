@@ -108,24 +108,43 @@ export function timeAgo(at: number): string {
  * clipped by a pane's `overflow: hidden`. The content builder runs only when
  * the pointer actually rests, which keeps long lists cheap.
  */
+let activeTip: { card: HTMLElement; target: HTMLElement; cleanup: () => void } | null = null;
+
+const destroyActiveTip = (): void => {
+  if (!activeTip) return;
+  const current = activeTip;
+  activeTip = null;
+  current.cleanup();
+  current.card.remove();
+};
+
+/** Remove any visible hover card. Re-rendering a view calls this so a card
+ * cannot outlive the row it was attached to. */
+export const dismissTooltip = (): void => {
+  destroyActiveTip();
+};
+
 export function tooltip(target: HTMLElement, content: () => Child | Child[]): void {
   let timer: number | null = null;
-  let card: HTMLElement | null = null;
 
-  const hide = (): void => {
+  const cancelTimer = (): void => {
     if (timer !== null) {
       window.clearTimeout(timer);
       timer = null;
     }
-    card?.remove();
-    card = null;
+  };
+
+  const hide = (): void => {
+    cancelTimer();
+    if (activeTip?.target === target) destroyActiveTip();
   };
 
   const show = (): void => {
     timer = null;
+    destroyActiveTip();
     const data = content();
     const children = Array.isArray(data) ? data : [data];
-    card = h('div', { class: 'hover-tip' }, children);
+    const card = h('div', { class: 'hover-tip' }, children);
     document.body.append(card);
     const rect = target.getBoundingClientRect();
     const tip = card.getBoundingClientRect();
@@ -135,10 +154,44 @@ export function tooltip(target: HTMLElement, content: () => Child | Child[]): vo
     if (top + tip.height > window.innerHeight - 8) top = rect.top - tip.height - 6;
     card.style.left = `${Math.max(8, left)}px`;
     card.style.top = `${Math.max(8, top)}px`;
+
+    const onPointerMove = (event: PointerEvent): void => {
+      if (!target.isConnected) {
+        destroyActiveTip();
+        return;
+      }
+      const box = target.getBoundingClientRect();
+      if (
+        event.clientX < box.left ||
+        event.clientX > box.right ||
+        event.clientY < box.top ||
+        event.clientY > box.bottom
+      ) {
+        destroyActiveTip();
+      }
+    };
+    const onViewportChange = (): void => destroyActiveTip();
+    document.addEventListener('pointermove', onPointerMove, true);
+    document.addEventListener('scroll', onViewportChange, true);
+    document.addEventListener('wheel', onViewportChange, true);
+    window.addEventListener('blur', onViewportChange);
+    window.addEventListener('resize', onViewportChange);
+    activeTip = {
+      card,
+      target,
+      cleanup: () => {
+        document.removeEventListener('pointermove', onPointerMove, true);
+        document.removeEventListener('scroll', onViewportChange, true);
+        document.removeEventListener('wheel', onViewportChange, true);
+        window.removeEventListener('blur', onViewportChange);
+        window.removeEventListener('resize', onViewportChange);
+      },
+    };
   };
 
   target.addEventListener('mouseenter', () => {
-    hide();
+    destroyActiveTip();
+    cancelTimer();
     timer = window.setTimeout(show, 260);
   });
   target.addEventListener('mouseleave', hide);

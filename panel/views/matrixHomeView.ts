@@ -21,7 +21,19 @@ import type {
   ShardxInstance,
 } from '../../shared/types.ts';
 import type { Child } from '../dom.ts';
-import { badge, button, clear, empty, errorText, h, tooltip } from '../dom.ts';
+import { badge, button, clear, dismissTooltip, empty, errorText, h, tooltip } from '../dom.ts';
+import {
+  ALL_CATEGORIES,
+  categoryClass,
+  categoryIdOf,
+  categoryNameOf,
+  guestNotes,
+  isUpdateAvailable,
+  libraryOf,
+  updateSource,
+} from '../extensionCatalog.ts';
+import { createGuestIcon } from '../extensionIcons.ts';
+import { ensureIconContrast } from '../iconContrast.ts';
 import type { ResourceSection } from './resourceEditorView.ts';
 
 export interface HomeActions {
@@ -30,10 +42,14 @@ export interface HomeActions {
   editGroups(): void;
   editTabs(): void;
   editResources(section: ResourceSection): void;
+  editCategories(): void;
   setHomeView(sectionId: string, view: HomeViewMode): void;
   moveHomeSection(sectionId: string, beforeId: string | null): void;
   openGuest(guest: GuestSummary): void;
   toggleGuest(guest: GuestSummary, enabled: boolean): void;
+  updateGuest(guest: GuestSummary): void;
+  checkGuestUpdates(): void;
+  openExternal(url: string): void;
   openApp(app: AppSummary): void;
   openWeb(url: string, title: string): void;
   openBookmark(bookmark: CloudBookmark): void;
@@ -77,6 +93,7 @@ const forwardForm = {
 
 const pages = new Map<string, number>();
 let guestQuery = '';
+let guestCategory: string = ALL_CATEGORIES;
 let focusGuestSearch = false;
 let activeSectionId: string | null = null;
 let resetScroll = false;
@@ -152,6 +169,35 @@ const attachTip = (
   ]);
 };
 
+const repoLabel = (url: string): string => {
+  const trimmed = url.trim().replace(/^git\+/, '').replace(/\.git$/, '');
+  const github = trimmed.match(/github\.com[/:]([^/]+)\/([^/]+)/i);
+  if (github) return `github.com/${github[1]}/${github[2]}`;
+  if (trimmed.startsWith('github:')) return `github.com/${trimmed.slice(7)}`;
+  return trimmed.replace(/^https?:\/\//, '').replace(/\/$/, '');
+};
+
+const guestIconNode = (guest: GuestSummary): HTMLElement => {
+  const wrapper = h('span', { class: 'guest-icon' });
+  if (guest.iconData) {
+    const img = h('img', {
+      class: 'guest-icon-img',
+      attrs: { src: guest.iconData, alt: '', loading: 'lazy' },
+    }) as HTMLImageElement;
+    wrapper.append(img);
+    ensureIconContrast(img);
+    return wrapper;
+  }
+  const svg = createGuestIcon(guest.icon);
+  if (svg) {
+    wrapper.append(svg);
+    return wrapper;
+  }
+  wrapper.classList.add('guest-icon-letter');
+  wrapper.textContent = initial(guest.name);
+  return wrapper;
+};
+
 const renderGuests = (snap: MatrixSnapshot, actions: HomeActions): SectionRender => {
   const pageSize = pageSizeOf(snap);
   const hidden = new Set(snap.config.groups.guests.hidden);
@@ -163,19 +209,74 @@ const renderGuests = (snap: MatrixSnapshot, actions: HomeActions): SectionRender
         (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
           (order.get(b.id) ?? Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name),
     );
-  const needle = guestQuery.trim().toLowerCase();
-  const filtered = needle
-    ? all.filter((guest) =>
-        `${guest.name} ${guest.id} ${guest.source ?? ''}`.toLowerCase().includes(needle),
-      )
-    : all;
 
-  const rows = slicePage(filtered, 'guests', pageSize).map((guest) => {
+  const library = libraryOf(snap.config);
+  const categoryIndex = new Map(library.categories.map((category, index) => [category.id, index]));
+  const categories = library.categories
+    .map((category) => ({
+      id: category.id,
+      name: category.name,
+      guests: all.filter((guest) => categoryIdOf(guest, library) === category.id),
+    }))
+    .filter((group) => group.guests.length > 0);
+  if (
+    guestCategory !== ALL_CATEGORIES &&
+    !library.categories.some((category) => category.id === guestCategory)
+  ) {
+    guestCategory = ALL_CATEGORIES;
+  }
+
+  const needle = guestQuery.trim().toLowerCase();
+  const inCategory =
+    guestCategory === ALL_CATEGORIES
+      ? all
+      : all.filter((guest) => categoryIdOf(guest, library) === guestCategory);
+  const filtered = needle
+    ? inCategory.filter((guest) =>
+        `${guest.name} ${guest.id} ${guest.source ?? ''} ${categoryNameOf(guest, library)} ${updateSource(guest)}`
+          .toLowerCase()
+          .includes(needle),
+      )
+    : inCategory;
+  const updateCount = all.filter(isUpdateAvailable).length;
+
+  const buildRow = (guest: GuestSummary): HTMLElement => {
+    const update = isUpdateAvailable(guest);
+    const repo = updateSource(guest);
+    const notes = guestNotes(guest);
+    const manual = notes.length > 0;
+    const categoryName = categoryNameOf(guest, library);
+
     const openButton = button('打开', () => actions.openGuest(guest), {
       variant: 'primary',
       disabled: !guest.enabled,
     });
     openButton.addEventListener('click', (event) => event.stopPropagation());
+
+    const updateButton = update
+      ? button(
+          manual ? '手动更新' : '自动更新',
+          () => {
+            if (
+              manual &&
+              !window.confirm(
+                `${guest.name} 存在二次开发或本地修改，更新会覆盖这些改动。仍要更新到 v${guest.latestVersion}？`,
+              )
+            ) {
+              return;
+            }
+            actions.updateGuest(guest);
+          },
+          {
+            class: `guest-update ${manual ? 'is-manual' : 'is-auto'}`,
+            title: manual
+              ? `存在二次开发或本地修改，更新到 v${guest.latestVersion} 可能覆盖改动`
+              : `自动更新到 v${guest.latestVersion}`,
+          },
+        )
+      : null;
+    updateButton?.addEventListener('click', (event) => event.stopPropagation());
+
     const toggle = h(
       'label',
       {
@@ -195,6 +296,33 @@ const renderGuests = (snap: MatrixSnapshot, actions: HomeActions): SectionRender
         h('span'),
       ],
     );
+
+    const repoButton = repo
+      ? h(
+          'button',
+          {
+            class: 'guest-repo',
+            attrs: { type: 'button', title: `更新地址：${repo}` },
+            on: {
+              click: (event) => {
+                event.stopPropagation();
+                actions.openExternal(repo);
+              },
+            },
+          },
+          [h('span', { class: 'guest-repo-text', text: repoLabel(repo) })],
+        )
+      : h('span', { class: 'guest-repo is-local', text: '本地安装' });
+
+    const updateBadge = update
+      ? badge(
+          manual ? `手动更新 v${guest.latestVersion}` : `可更新 v${guest.latestVersion}`,
+          manual ? 'warn' : 'info',
+        )
+      : guest.originUrl
+        ? badge(guest.updateChecked ? '已是最新' : '待检查', 'muted')
+        : badge('本地安装', 'muted');
+
     const row = h(
       'div',
       {
@@ -207,35 +335,100 @@ const renderGuests = (snap: MatrixSnapshot, actions: HomeActions): SectionRender
         },
       },
       [
-        h('span', { class: 'avatar', text: initial(guest.name) }),
-        h('div', { class: 'guest-meta' }, [
-          h('span', { class: 'guest-name', text: guest.name }),
-          h('span', {
-            class: 'guest-detail',
-            text: [guest.id, guest.version ? `v${guest.version}` : '', guest.source ?? '']
-              .filter(Boolean)
-              .join(' · '),
-          }),
+        guestIconNode(guest),
+        h('div', { class: 'guest-main' }, [
+          h('div', { class: 'guest-title-line' }, [
+            h('span', { class: 'guest-name', text: guest.name }),
+            guest.version ? h('span', { class: 'guest-version', text: `v${guest.version}` }) : null,
+            guest.capabilities?.granted?.includes('service') ? badge('service', 'info') : null,
+            ...notes.map((note) => badge(note.label, note.tone)),
+            updateBadge,
+          ]),
+          h('div', { class: 'guest-line2' }, [
+            repoButton,
+            h('span', { class: 'guest-cat-label', text: categoryName }),
+            h('div', { class: 'guest-actions' }, [updateButton, toggle, openButton]),
+          ]),
         ]),
-        guest.capabilities?.granted?.includes('service') ? badge('service', 'info') : null,
-        toggle,
-        openButton,
       ],
     );
-    attachTip(row, guest.name, [
+
+    const tipRows: Array<[string, string | undefined | null]> = [
       ['ID', guest.id],
+      ['分类', categoryName],
       ['版本', guest.version ? `v${guest.version}` : ''],
+      [
+        '最新版本',
+        update
+          ? `v${guest.latestVersion}`
+          : guest.originUrl
+            ? guest.updateChecked
+              ? '已是最新'
+              : '尚未检查'
+            : '本地安装',
+      ],
+      ['更新地址', repo || '无（本地安装）'],
       ['来源', guest.source],
+      ['安装方式', guest.originUrl ? 'Git 克隆' : '本地目录'],
       ['路径', guest.path],
       ['状态', guest.enabled ? '已启用' : '已禁用'],
       ['能力', guest.capabilities?.granted?.join(', ')],
-    ]);
+    ];
+    for (const note of notes) tipRows.push(['备注', note.title]);
+    attachTip(row, guest.name, tipRows);
     return row;
-  });
+  };
+
+  const categoryBar = h(
+    'div',
+    { class: 'guest-cats', attrs: { role: 'tablist', 'aria-label': '扩展分类' } },
+    [
+      h(
+        'button',
+        {
+          class: `guest-cat${guestCategory === ALL_CATEGORIES ? ' active' : ''}`,
+          attrs: { type: 'button', title: '显示全部分类' },
+          on: {
+            click: () => {
+              guestCategory = ALL_CATEGORIES;
+              pages.set('guests', 0);
+              actions.rerender();
+            },
+          },
+        },
+        [
+          h('span', { class: 'guest-cat-label', text: ALL_CATEGORIES }),
+          h('span', { class: 'guest-cat-count', text: String(all.length) }),
+        ],
+      ),
+      ...categories.map((group) => {
+        const index = categoryIndex.get(group.id) ?? 0;
+        return h(
+          'button',
+          {
+            class: `guest-cat ${categoryClass(index)}${group.id === guestCategory ? ' active' : ''}`,
+            attrs: { type: 'button', title: `${group.name} · ${group.guests.length} 个扩展` },
+            on: {
+              click: () => {
+                guestCategory = group.id;
+                pages.set('guests', 0);
+                actions.rerender();
+              },
+            },
+          },
+          [
+            h('span', { class: 'guest-cat-dot' }),
+            h('span', { class: 'guest-cat-label', text: group.name }),
+            h('span', { class: 'guest-cat-count', text: String(group.guests.length) }),
+          ],
+        );
+      }),
+    ],
+  );
 
   const search = h('input', {
     class: 'input search guest-search',
-    attrs: { type: 'search', placeholder: '筛选扩展…', value: guestQuery },
+    attrs: { type: 'search', placeholder: '筛选扩展、分类或更新地址…', value: guestQuery },
     on: {
       input: (event) => {
         guestQuery = (event.target as HTMLInputElement).value;
@@ -246,17 +439,50 @@ const renderGuests = (snap: MatrixSnapshot, actions: HomeActions): SectionRender
     },
   });
 
-  return {
-    subtitle: `${all.length} 个已安装 guest${needle ? ` · 匹配 ${filtered.length}` : ''}`,
-    count: all.length,
-    toolbar: [button('编辑', () => actions.editResources('guests'))],
-    body: [
-      search,
+  const body: Child[] = [categoryBar, search];
+  const grouped = !needle && guestCategory === ALL_CATEGORIES;
+  if (grouped) {
+    for (const group of categories) {
+      body.push(
+        h('section', { class: 'guest-group' }, [
+          h('header', { class: 'guest-group-head' }, [
+            h(
+              'span',
+              {
+                class: `guest-group-dot ${categoryClass(categoryIndex.get(group.id) ?? 0)}`,
+              },
+            ),
+            h('h3', { class: 'guest-group-title', text: group.name }),
+            h('span', { class: 'guest-group-count', text: String(group.guests.length) }),
+          ]),
+          h('div', { class: 'guest-list' }, group.guests.map(buildRow)),
+        ]),
+      );
+    }
+  } else {
+    const rows = slicePage(filtered, 'guests', pageSize).map(buildRow);
+    body.push(
       rows.length
         ? h('div', { class: 'guest-list' }, rows)
         : empty(needle ? '没有匹配的扩展' : '没有已安装的扩展'),
       pager('guests', filtered.length, pageSize, actions),
+    );
+  }
+
+  return {
+    subtitle: `${all.length} 个扩展 · ${categories.length} 个分类${
+      updateCount ? ` · ${updateCount} 个可更新` : ''
+    }${needle ? ` · 匹配 ${filtered.length}` : ''}`,
+    count: all.length,
+    toolbar: [
+      updateCount ? badge(`${updateCount} 可更新`, 'warn') : null,
+      button('检查更新', actions.checkGuestUpdates, {
+        title: '检查 Git 安装的扩展是否有新版本',
+      }),
+      button('分类', actions.editCategories, { title: '编辑扩展分类与名称归属' }),
+      button('编辑', () => actions.editResources('guests')),
     ],
+    body,
   };
 };
 
@@ -998,6 +1224,7 @@ const renderPanel = (
 
 export function mountHome(container: HTMLElement, state: HomeState, actions: HomeActions): void {
   const scroll = container.scrollTop;
+  dismissTooltip();
   clear(container);
   const root = h('div', { class: 'home' });
   container.append(root);

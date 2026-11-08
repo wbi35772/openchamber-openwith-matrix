@@ -15,7 +15,10 @@ import path from 'node:path';
 import {
   CONFIG_FILE_NAME,
   CONFIG_VERSION,
+  DEFAULT_EXTENSION_ASSIGNMENTS,
+  DEFAULT_EXTENSION_CATEGORIES,
   DEFAULT_HOME_SECTIONS,
+  type ExtensionLibraryConfig,
   type HomeSectionConfig,
   type HomeSectionKind,
   type HomeViewMode,
@@ -89,6 +92,45 @@ const HOME_VIEW_MODES: HomeViewMode[] = ['list', 'cards', 'compact'];
 
 const defaultSectionFor = (kind: HomeSectionKind): HomeSectionConfig | undefined =>
   DEFAULT_HOME_SECTIONS.find((section) => section.kind === kind);
+
+const normalizeExtensionLibrary = (raw: unknown): ExtensionLibraryConfig => {
+  const source = isRecord(raw) ? raw : {};
+  const seen = new Set<string>();
+  const categories: ExtensionLibraryConfig['categories'] = [];
+  for (const entry of Array.isArray(source.categories) ? source.categories : []) {
+    if (!isRecord(entry)) continue;
+    const name =
+      typeof entry.name === 'string' && entry.name.trim() ? entry.name.trim().slice(0, 24) : '';
+    if (!name) continue;
+    const wanted =
+      typeof entry.id === 'string' && entry.id.trim()
+        ? entry.id.trim()
+        : `cat-${categories.length + 1}`;
+    let id = wanted;
+    let suffix = 2;
+    while (seen.has(id)) {
+      id = `${wanted}-${suffix}`;
+      suffix += 1;
+    }
+    seen.add(id);
+    categories.push({ id, name });
+  }
+  if (!categories.length) {
+    for (const fallback of DEFAULT_EXTENSION_CATEGORIES) {
+      categories.push({ ...fallback });
+      seen.add(fallback.id);
+    }
+  }
+  const assignments: Record<string, string> = {};
+  for (const [guestId, categoryId] of Object.entries(DEFAULT_EXTENSION_ASSIGNMENTS)) {
+    if (seen.has(categoryId)) assignments[guestId] = categoryId;
+  }
+  const rawAssignments = isRecord(source.assignments) ? source.assignments : {};
+  for (const [guestId, categoryId] of Object.entries(rawAssignments)) {
+    if (typeof categoryId === 'string' && seen.has(categoryId)) assignments[guestId] = categoryId;
+  }
+  return { categories, assignments };
+};
 
 const uniqueSectionId = (wanted: string, seen: Set<string>): string => {
   if (!seen.has(wanted)) {
@@ -178,6 +220,7 @@ const normalize = (config: MatrixConfig): MatrixConfig => {
   next.settings ??= {} as MatrixConfig['settings'];
   next.groups ??= {} as MatrixConfig['groups'];
   next.home ??= { pageSize: 8, groups: [], sections: [] };
+  next.extensionLibrary = normalizeExtensionLibrary(next.extensionLibrary as unknown);
   if (!Array.isArray(next.home.groups)) next.home.groups = [];
   next.home.groups = next.home.groups
     .filter(isRecord)

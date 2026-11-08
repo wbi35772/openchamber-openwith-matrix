@@ -274,6 +274,16 @@ const handle = async (req: http.IncomingMessage, res: http.ServerResponse): Prom
       send(res, 200, { ok: true, data: await guests.list() });
       return;
     }
+    if (method === 'POST' && second === 'updates' && third === 'check') {
+      const body = asRecord(await readJson(req));
+      const updates = await guests.checkUpdates(body.force !== false);
+      send(res, 200, { ok: true, data: { updates } });
+      return;
+    }
+    if (second && method === 'POST' && third === 'update') {
+      send(res, 200, { ok: true, data: await guests.update(second) });
+      return;
+    }
     if (second && method === 'POST' && third === 'frame-grant') {
       const entry = asString(asRecord(await readJson(req)).entry, 'panel/index.html');
       send(res, 200, { ok: true, data: await guests.frameGrant(second, entry) });
